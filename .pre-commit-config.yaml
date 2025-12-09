@@ -55,6 +55,12 @@ repos:
             pass_filenames: false
             stages: [manual]
 
+    # REUSE license compliance check
+    - repo: https://github.com/fsfe/reuse-tool
+      rev: v4.0.3
+      hooks:
+          - id: reuse
+
     # General file checks
     - repo: https://github.com/pre-commit/pre-commit-hooks
       rev: v4.5.0
