@@ -93,6 +93,7 @@ class ProviderServiceTest extends TestCase {
 			'groupProvisioning' => true,
 			'groupWhitelistRegex' => '1',
 			'restrictLoginToGroups' => true,
+			'protectedGroups' => '1',
 			'nestedAndFallbackClaims' => true,
 			'teamsProvisioning' => true,
 			'mappingOrganizations' => '1',
@@ -177,6 +178,7 @@ class ProviderServiceTest extends TestCase {
 			'mappingBirthdate' => 'birthdate',
 			'groupWhitelistRegex' => '',
 			'restrictLoginToGroups' => false,
+			'protectedGroups' => '',
 			'nestedAndFallbackClaims' => false,
 			// Teams provisioning settings
 			'teamsProvisioning' => false,
