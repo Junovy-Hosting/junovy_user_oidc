@@ -243,6 +243,7 @@ class ProviderServiceTest extends TestCase {
 				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_GROUP_PROVISIONING, '', '1'],
 				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
 				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_RESTRICT_LOGIN_TO_GROUPS, '', '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_PROTECTED_GROUPS, '', ''],
 				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '', '0'],
 				// Teams provisioning settings
 				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_TEAMS_PROVISIONING, '', '0'],
