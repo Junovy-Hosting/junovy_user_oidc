@@ -380,6 +380,7 @@ class ProvisioningServiceTest extends TestCase {
 					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', $group_whitelist],
 					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
 					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
 				]
 			));
 
@@ -421,6 +422,336 @@ class ProvisioningServiceTest extends TestCase {
 	}
 
 	/**
+	 * Test that users are not removed from protected groups (default: users, admin)
+	 */
+	public function testProvisionUserGroupsProtectedGroupsDefault(): void {
+		$user = $this->createMock(IUser::class);
+		$providerId = 421;
+
+		// User is in 'users' and 'admin' groups, but these are not in the token
+		$usersGroup = $this->createMock(IGroup::class);
+		$usersGroup->method('getGID')->willReturn('users');
+
+		$adminGroup = $this->createMock(IGroup::class);
+		$adminGroup->method('getGID')->willReturn('admin');
+
+		$otherGroup = $this->createMock(IGroup::class);
+		$otherGroup->method('getGID')->willReturn('other_group');
+
+		$tokenPayload = (object)[
+			'groups' => ['new_group']
+		];
+
+		$this->providerService
+			->method('getSetting')
+			->will($this->returnValueMap(
+				[
+					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
+					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
+				]
+			));
+
+		$this->groupManager
+			->method('getUserGroups')
+			->with($user)
+			->willReturn([$usersGroup, $adminGroup, $otherGroup]);
+
+		// Protected groups should NOT have users removed
+		$usersGroup->expects(self::never())
+			->method('removeUser');
+		$adminGroup->expects(self::never())
+			->method('removeUser');
+
+		// Other groups should have users removed (not in token, not protected)
+		$otherGroup->expects(self::once())
+			->method('removeUser')
+			->with($user);
+
+		// New group should be created and user added
+		$newGroup = $this->createMock(IGroup::class);
+		$this->groupManager->expects(self::once())
+			->method('createGroup')
+			->with('new_group')
+			->willReturn($newGroup);
+		$newGroup->expects(self::once())
+			->method('addUser')
+			->with($user);
+
+		$this->eventDispatcher
+			->method('dispatchTyped')
+			->willReturnCallback(function ($event) {
+				if ($event instanceof AttributeMappedEvent && $event->getAttribute() === ProviderService::SETTING_MAPPING_GROUPS) {
+					$event->setValue(json_encode(['new_group']));
+				}
+			});
+
+		$this->provisioningService->provisionUserGroups(
+			$user,
+			$providerId,
+			$tokenPayload
+		);
+	}
+
+	/**
+	 * Test that users are not removed from custom protected groups
+	 */
+	public function testProvisionUserGroupsProtectedGroupsCustom(): void {
+		$user = $this->createMock(IUser::class);
+		$providerId = 421;
+
+		$customProtectedGroup = $this->createMock(IGroup::class);
+		$customProtectedGroup->method('getGID')->willReturn('custom_protected');
+
+		$otherGroup = $this->createMock(IGroup::class);
+		$otherGroup->method('getGID')->willReturn('other_group');
+
+		$tokenPayload = (object)[
+			'groups' => ['new_group']
+		];
+
+		$this->providerService
+			->method('getSetting')
+			->will($this->returnValueMap(
+				[
+					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
+					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'custom_protected,staff'],
+				]
+			));
+
+		$this->groupManager
+			->method('getUserGroups')
+			->with($user)
+			->willReturn([$customProtectedGroup, $otherGroup]);
+
+		// Custom protected group should NOT have users removed
+		$customProtectedGroup->expects(self::never())
+			->method('removeUser');
+
+		// Other groups should have users removed
+		$otherGroup->expects(self::once())
+			->method('removeUser')
+			->with($user);
+
+		// New group should be created
+		$newGroup = $this->createMock(IGroup::class);
+		$this->groupManager->expects(self::once())
+			->method('createGroup')
+			->with('new_group')
+			->willReturn($newGroup);
+		$newGroup->expects(self::once())
+			->method('addUser')
+			->with($user);
+
+		$this->eventDispatcher
+			->method('dispatchTyped')
+			->willReturnCallback(function ($event) {
+				if ($event instanceof AttributeMappedEvent && $event->getAttribute() === ProviderService::SETTING_MAPPING_GROUPS) {
+					$event->setValue(json_encode(['new_group']));
+				}
+			});
+
+		$this->provisioningService->provisionUserGroups(
+			$user,
+			$providerId,
+			$tokenPayload
+		);
+	}
+
+	/**
+	 * Test that protected groups work together with whitelist regex
+	 */
+	public function testProvisionUserGroupsProtectedGroupsWithWhitelistRegex(): void {
+		$user = $this->createMock(IUser::class);
+		$providerId = 421;
+
+		$usersGroup = $this->createMock(IGroup::class);
+		$usersGroup->method('getGID')->willReturn('users');
+
+		$whitelistedGroup = $this->createMock(IGroup::class);
+		$whitelistedGroup->method('getGID')->willReturn('blue_team');
+
+		$nonWhitelistedGroup = $this->createMock(IGroup::class);
+		$nonWhitelistedGroup->method('getGID')->willReturn('red_team');
+
+		$tokenPayload = (object)[
+			'groups' => ['blue_new']
+		];
+
+		$this->providerService
+			->method('getSetting')
+			->will($this->returnValueMap(
+				[
+					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', '/^blue/'],
+					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
+				]
+			));
+
+		$this->groupManager
+			->method('getUserGroups')
+			->with($user)
+			->willReturn([$usersGroup, $whitelistedGroup, $nonWhitelistedGroup]);
+
+		// Protected group should NOT have users removed
+		$usersGroup->expects(self::never())
+			->method('removeUser');
+
+		// Whitelisted group (blue_team) should have users removed (not in token)
+		$whitelistedGroup->expects(self::once())
+			->method('removeUser')
+			->with($user);
+
+		// Non-whitelisted group (red_team) should NOT have users removed (doesn't match regex)
+		$nonWhitelistedGroup->expects(self::never())
+			->method('removeUser');
+
+		// New group should be created
+		$newGroup = $this->createMock(IGroup::class);
+		$this->groupManager->expects(self::once())
+			->method('createGroup')
+			->with('blue_new')
+			->willReturn($newGroup);
+		$newGroup->expects(self::once())
+			->method('addUser')
+			->with($user);
+
+		$this->eventDispatcher
+			->method('dispatchTyped')
+			->willReturnCallback(function ($event) {
+				if ($event instanceof AttributeMappedEvent && $event->getAttribute() === ProviderService::SETTING_MAPPING_GROUPS) {
+					$event->setValue(json_encode(['blue_new']));
+				}
+			});
+
+		$this->provisioningService->provisionUserGroups(
+			$user,
+			$providerId,
+			$tokenPayload
+		);
+	}
+
+	/**
+	 * Test that empty protected groups setting falls back to default
+	 */
+	public function testProvisionUserGroupsProtectedGroupsEmptySetting(): void {
+		$user = $this->createMock(IUser::class);
+		$providerId = 421;
+
+		$usersGroup = $this->createMock(IGroup::class);
+		$usersGroup->method('getGID')->willReturn('users');
+
+		$tokenPayload = (object)[
+			'groups' => ['new_group']
+		];
+
+		$this->providerService
+			->method('getSetting')
+			->will($this->returnValueMap(
+				[
+					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
+					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', ''],
+				]
+			));
+
+		$this->groupManager
+			->method('getUserGroups')
+			->with($user)
+			->willReturn([$usersGroup]);
+
+		// Empty setting should fall back to default (users, admin)
+		$usersGroup->expects(self::never())
+			->method('removeUser');
+
+		$this->eventDispatcher
+			->method('dispatchTyped')
+			->willReturnCallback(function ($event) {
+				if ($event instanceof AttributeMappedEvent && $event->getAttribute() === ProviderService::SETTING_MAPPING_GROUPS) {
+					$event->setValue(json_encode(['new_group']));
+				}
+			});
+
+		$newGroup = $this->createMock(IGroup::class);
+		$this->groupManager->expects(self::once())
+			->method('createGroup')
+			->with('new_group')
+			->willReturn($newGroup);
+		$newGroup->expects(self::once())
+			->method('addUser')
+			->with($user);
+
+		$this->provisioningService->provisionUserGroups(
+			$user,
+			$providerId,
+			$tokenPayload
+		);
+	}
+
+	/**
+	 * Test that protected groups with whitespace are handled correctly
+	 */
+	public function testProvisionUserGroupsProtectedGroupsWithWhitespace(): void {
+		$user = $this->createMock(IUser::class);
+		$providerId = 421;
+
+		$protectedGroup = $this->createMock(IGroup::class);
+		$protectedGroup->method('getGID')->willReturn('staff');
+
+		$tokenPayload = (object)[
+			'groups' => ['new_group']
+		];
+
+		$this->providerService
+			->method('getSetting')
+			->will($this->returnValueMap(
+				[
+					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
+					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', ' users , staff , admin '],
+				]
+			));
+
+		$this->groupManager
+			->method('getUserGroups')
+			->with($user)
+			->willReturn([$protectedGroup]);
+
+		// Group with whitespace in setting should still be protected
+		$protectedGroup->expects(self::never())
+			->method('removeUser');
+
+		$this->eventDispatcher
+			->method('dispatchTyped')
+			->willReturnCallback(function ($event) {
+				if ($event instanceof AttributeMappedEvent && $event->getAttribute() === ProviderService::SETTING_MAPPING_GROUPS) {
+					$event->setValue(json_encode(['new_group']));
+				}
+			});
+
+		$newGroup = $this->createMock(IGroup::class);
+		$this->groupManager->expects(self::once())
+			->method('createGroup')
+			->with('new_group')
+			->willReturn($newGroup);
+		$newGroup->expects(self::once())
+			->method('addUser')
+			->with($user);
+
+		$this->provisioningService->provisionUserGroups(
+			$user,
+			$providerId,
+			$tokenPayload
+		);
+	}
+
+	/**
 	 * Test that groups are NOT hashed when retrieved from token
 	 * This verifies the fix for the bug where groups were incorrectly hashed
 	 */
@@ -442,6 +773,7 @@ class ProvisioningServiceTest extends TestCase {
 					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
 					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
 					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
 				]
 			));
 
@@ -493,6 +825,7 @@ class ProvisioningServiceTest extends TestCase {
 					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
 					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
 					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
 				]
 			));
 
