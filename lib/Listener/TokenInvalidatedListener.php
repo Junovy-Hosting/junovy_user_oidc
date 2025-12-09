@@ -56,10 +56,11 @@ class TokenInvalidatedListener implements IEventListener {
 		try {
 			$oidcSession = $this->sessionMapper->getSessionByAuthTokenAndUid($eventTokenId, $eventTokenUserId);
 		} catch (Exception|DoesNotExistException|MultipleObjectsReturnedException $e) {
-			$this->logger->warning('[TokenInvalidatedListener] Could not find the OIDC session related with an invalidated token', [
+			// This is expected for non-OIDC tokens (e.g., app passwords, additional session tokens)
+			// Only the main OIDC login token has a session record
+			$this->logger->debug('[TokenInvalidatedListener] No OIDC session found for invalidated token (expected for non-OIDC tokens)', [
 				'token_id' => $eventTokenId,
 				'user_id' => $eventTokenUserId,
-				'exception' => $e,
 			]);
 			return;
 		}
