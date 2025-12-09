@@ -711,6 +711,7 @@ class ProvisioningService {
 		$organizations = [];
 
 		// Handle Keycloak Organizations format (object with org IDs as keys)
+		// Format: {"orgName": {"id": "...", "name": "...", "roles": [...]}}
 		if (is_array($orgsRaw) && !array_is_list($orgsRaw)) {
 			foreach ($orgsRaw as $orgId => $orgData) {
 				$orgName = is_array($orgData) && isset($orgData['name']) ? $orgData['name'] : $orgId;
@@ -731,18 +732,32 @@ class ProvisioningService {
 
 				$organizations[] = $org;
 			}
-		} else {
-			// Handle simple array format (list of strings)
-			foreach ($orgsRaw as $orgName) {
-				if (!is_string($orgName)) {
+		} elseif (is_array($orgsRaw) && array_is_list($orgsRaw)) {
+			// Handle array format - could be array of strings or array of objects
+			foreach ($orgsRaw as $item) {
+				if (is_string($item)) {
+					// Simple string format: ["org1", "org2"]
+					$org = (object)[
+						'id' => $item,
+						'name' => $item,
+						'roles' => [],
+					];
+				} elseif (is_array($item) && !array_is_list($item)) {
+					// Keycloak format: [{"dds": {"id": "..."}}, {"other": {"id": "..."}}]
+					// Each item is an object with a single key (the org name)
+					$orgName = array_key_first($item);
+					if ($orgName === null) {
+						continue;
+					}
+					$orgData = $item[$orgName];
+					$org = (object)[
+						'id' => is_array($orgData) && isset($orgData['id']) ? $orgData['id'] : $orgName,
+						'name' => $orgName,
+						'roles' => is_array($orgData) && isset($orgData['roles']) ? $orgData['roles'] : [],
+					];
+				} else {
 					continue;
 				}
-
-				$org = (object)[
-					'id' => $orgName,
-					'name' => $orgName,
-					'roles' => [],
-				];
 
 				// Apply whitelist regex
 				if ($teamsWhitelistRegex) {
