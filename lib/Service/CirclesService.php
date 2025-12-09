@@ -26,8 +26,8 @@ class CirclesService {
 	private const FALLBACK_MEMBER_APP_DEFAULT = 11000;
 	private const FALLBACK_MEMBER_APP_CIRCLES = 10001;
 
-	/** @var \OCA\Circles\CirclesManager|null */
-	private $circlesManager = null;
+	/** @var object|null CirclesManager instance when the Circles app is available */
+	private ?object $circlesManager = null;
 
 	private bool $circlesManagerInitialized = false;
 
