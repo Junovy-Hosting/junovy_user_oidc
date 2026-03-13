@@ -111,6 +111,48 @@ class KeycloakAdminService {
 		return $results;
 	}
 
+	/**
+	 * Get all organizations in the realm with their attributes.
+	 */
+	public function getOrganizations(): array {
+		return $this->adminGetPaginated('/organizations');
+	}
+
+	/**
+	 * Get all members of an organization.
+	 */
+	public function getOrganizationMembers(string $orgId): array {
+		return $this->adminGetPaginated('/organizations/' . urlencode($orgId) . '/members');
+	}
+
+	/**
+	 * Get all groups in the realm with their attributes.
+	 */
+	public function getGroups(): array {
+		return $this->adminGetPaginated('/groups');
+	}
+
+	/**
+	 * Get all members of a group.
+	 */
+	public function getGroupMembers(string $groupId): array {
+		return $this->adminGetPaginated('/groups/' . urlencode($groupId) . '/members');
+	}
+
+	/**
+	 * Get a specific attribute value from a Keycloak entity's attributes array.
+	 * Keycloak stores attributes as {"key": ["value1", "value2"]}.
+	 *
+	 * @return string|null First value of the attribute, or null if not set
+	 */
+	public static function getAttribute(array $entity, string $key): ?string {
+		$attrs = $entity['attributes'] ?? [];
+		if (isset($attrs[$key]) && is_array($attrs[$key]) && count($attrs[$key]) > 0) {
+			return $attrs[$key][0];
+		}
+		return null;
+	}
+
 	private function getAdminUrl(): string {
 		// keycloakBaseUrl is like http://keycloak.local/realms/dds
 		// Admin API is at http://keycloak.local/admin/realms/dds
