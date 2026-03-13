@@ -104,24 +104,30 @@ class ReconciliationService {
 	 * Returns null if the user hasn't logged in to Nextcloud yet.
 	 */
 	private function resolveKeycloakUser(string $keycloakSub, string $username): ?\OCP\IUser {
-		// Compute the Nextcloud user_id using the same algorithm as login-time provisioning
+		// Strategy 1: Compute hashed ID (newer provisioning via LocalIdService)
 		$nextcloudUserId = $this->localIdService->getId($this->providerId, $keycloakSub);
 		if (strlen($nextcloudUserId) > 64) {
 			$nextcloudUserId = hash('sha256', $nextcloudUserId);
 		}
 
-		if (!$this->userMapper->userExists($nextcloudUserId)) {
-			$this->logger->info("Skipping user \"{$username}\" (Keycloak sub: {$keycloakSub}) — not yet provisioned in Nextcloud");
-			return null;
+		if ($this->userMapper->userExists($nextcloudUserId)) {
+			$user = $this->userManager->get($nextcloudUserId);
+			if ($user !== null) {
+				return $user;
+			}
 		}
 
-		$user = $this->userManager->get($nextcloudUserId);
-		if ($user === null) {
-			$this->logger->info("Skipping user \"{$username}\" — mapping exists but IUser not found");
-			return null;
+		// Strategy 2: Try raw Keycloak sub as Nextcloud user_id (legacy provisioning)
+		// Older versions of user_oidc stored the Keycloak sub UUID directly as the user ID
+		if ($this->userMapper->userExists($keycloakSub)) {
+			$user = $this->userManager->get($keycloakSub);
+			if ($user !== null) {
+				return $user;
+			}
 		}
 
-		return $user;
+		$this->logger->info("Skipping user \"{$username}\" (Keycloak sub: {$keycloakSub}) — not yet provisioned in Nextcloud");
+		return null;
 	}
 
 	private function reconcileOrganizations(array $kcOrgs, bool $dryRun, array &$result): void {
