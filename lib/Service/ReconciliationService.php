@@ -22,6 +22,9 @@ class ReconciliationService {
 	/** @var int OIDC provider ID, set per reconciliation run */
 	private int $providerId = 0;
 
+	/** @var bool Whether folder listing returned results (false = skip creation to avoid duplicates) */
+	private bool $folderListingWorks = true;
+
 	public function __construct(
 		private KeycloakAdminService $keycloakAdmin,
 		private CirclesService $circlesService,
@@ -56,6 +59,18 @@ class ReconciliationService {
 			// Step 1: Fetch desired state from Keycloak
 			$kcOrgs = $this->keycloakAdmin->getOrganizations();
 			$kcGroups = $repairOnly ? [] : $this->keycloakAdmin->getGroups();
+
+			// Safety check: if GroupFolders is enabled but listing returns empty,
+			// something is wrong with the API. Refuse to create folders to avoid duplicates.
+			$this->folderListingWorks = true;
+			if ($this->groupFoldersService->isGroupFoldersEnabled()) {
+				$existingFolders = $this->groupFoldersService->listFolders();
+				if (empty($existingFolders)) {
+					$this->logger->warning('GroupFolders is enabled but listFolders() returned empty — skipping folder creation to avoid duplicates');
+					$result['warnings'][] = 'GroupFolders listing returned empty — folder creation disabled for this run to prevent duplicates';
+					$this->folderListingWorks = false;
+				}
+			}
 
 			// Step 2: Reconcile orgs → circles + group folders
 			$this->reconcileOrganizations($kcOrgs, $dryRun, $result);
@@ -142,7 +157,9 @@ class ReconciliationService {
 			if ($this->groupFoldersService->isGroupFoldersEnabled()) {
 				$folder = $this->groupFoldersService->findFolderByName($folderName);
 
-				if ($folder === null) {
+				if ($folder === null && !$this->folderListingWorks) {
+					$result['warnings'][] = "Skipping folder creation for \"{$folderName}\" — folder listing is broken, cannot verify if folder already exists";
+				} elseif ($folder === null) {
 					if ($dryRun) {
 						$result['actions'][] = ['type' => 'create_folder', 'name' => $folderName, 'quota' => $quotaStr ?? '250 GB'];
 					} else {
@@ -206,6 +223,7 @@ class ReconciliationService {
 		$currentMemberIds = $this->circlesService->getCircleMembers($circle);
 
 		$desiredMemberIds = [];
+		$unresolvedCount = 0;
 		foreach ($kcMembers as $kcMember) {
 			$user = $this->resolveKeycloakUser($kcMember['id'], $kcMember['username'] ?? $kcMember['id']);
 			if ($user !== null) {
@@ -218,10 +236,17 @@ class ReconciliationService {
 						$result['actions'][] = ['type' => 'add_circle_member', 'circle' => $org['name'], 'user' => $user->getUID()];
 					}
 				}
+			} else {
+				$unresolvedCount++;
 			}
 		}
 
-		// Remove members not in Keycloak org
+		// Remove members not in Keycloak org — ONLY if all members could be resolved.
+		if ($unresolvedCount > 0) {
+			$result['warnings'][] = "Circle \"{$org['name']}\": skipping member removal — {$unresolvedCount} of " . count($kcMembers) . ' Keycloak members could not be resolved to Nextcloud users';
+			return;
+		}
+
 		foreach ($currentMemberIds as $memberId) {
 			if (!in_array($memberId, $desiredMemberIds)) {
 				$user = $this->userManager->get($memberId);
@@ -286,6 +311,7 @@ class ReconciliationService {
 		$currentMemberIds = array_map(fn ($u) => $u->getUID(), $currentMembers);
 
 		$desiredMemberIds = [];
+		$unresolvedCount = 0;
 		foreach ($kcMembers as $kcMember) {
 			$user = $this->resolveKeycloakUser($kcMember['id'], $kcMember['username'] ?? $kcMember['id']);
 			if ($user !== null) {
@@ -298,10 +324,19 @@ class ReconciliationService {
 						$result['actions'][] = ['type' => 'add_group_member', 'group' => $groupName, 'user' => $user->getUID()];
 					}
 				}
+			} else {
+				$unresolvedCount++;
 			}
 		}
 
-		// Remove stale members
+		// Remove stale members — ONLY if all Keycloak members could be resolved.
+		// If any couldn't be resolved (not yet provisioned in Nextcloud), we risk
+		// removing legitimate members whose ID mapping failed.
+		if ($unresolvedCount > 0) {
+			$result['warnings'][] = "Group \"{$groupName}\": skipping member removal — {$unresolvedCount} of " . count($kcMembers) . ' Keycloak members could not be resolved to Nextcloud users';
+			return;
+		}
+
 		foreach ($currentMemberIds as $memberId) {
 			if (!in_array($memberId, $desiredMemberIds)) {
 				$user = $this->userManager->get($memberId);

@@ -71,7 +71,22 @@ class GroupFoldersService {
 		}
 
 		try {
-			return $manager->getAllFoldersWithSize(-1) ?: [];
+			// Try multiple approaches — the root storage ID parameter varies across GroupFolders versions
+			$folders = $manager->getAllFoldersWithSize(-1);
+			if (!empty($folders)) {
+				return $folders;
+			}
+
+			// Fallback: try without size info if getAllFoldersWithSize returned empty
+			if (method_exists($manager, 'getAllFolders')) {
+				$folders = $manager->getAllFolders();
+				if (!empty($folders)) {
+					$this->logger->debug('listFolders: getAllFoldersWithSize(-1) returned empty, fell back to getAllFolders()');
+					return $folders;
+				}
+			}
+
+			return [];
 		} catch (Throwable $e) {
 			$this->logger->warning('Failed to list group folders', ['exception' => $e]);
 			return [];
@@ -200,14 +215,16 @@ class GroupFoldersService {
 	}
 
 	/**
-	 * Find a group folder by name.
+	 * Find a group folder by name (case-insensitive, whitespace-trimmed).
 	 *
 	 * @return array|null Folder data or null if not found
 	 */
 	public function findFolderByName(string $name): ?array {
 		$folders = $this->listFolders();
+		$normalizedName = strtolower(trim($name));
 		foreach ($folders as $id => $folder) {
-			if (($folder['mount_point'] ?? '') === $name) {
+			$mountPoint = strtolower(trim($folder['mount_point'] ?? ''));
+			if ($mountPoint === $normalizedName) {
 				$folder['id'] = $id;
 				return $folder;
 			}

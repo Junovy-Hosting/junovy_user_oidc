@@ -15,6 +15,7 @@ use OCA\UserOIDC\Service\GroupFoldersService;
 use OCA\UserOIDC\Service\KeycloakAdminService;
 use OCA\UserOIDC\Service\LocalIdService;
 use OCA\UserOIDC\Service\ReconciliationService;
+use OCP\IGroup;
 use OCP\IGroupManager;
 use OCP\IUser;
 use OCP\IUserManager;
@@ -77,7 +78,7 @@ class ReconciliationServiceTest extends TestCase {
 		// getOrCreateCircle returns null (circle doesn't exist, dry-run won't create)
 		$this->circlesService->method('getOrCreateCircle')->willReturn(null);
 
-		// No group folders exist yet
+		// GroupFolders enabled but empty listing triggers safety guard
 		$this->groupFoldersService->method('isGroupFoldersEnabled')->willReturn(true);
 		$this->groupFoldersService->method('listFolders')->willReturn([]);
 
@@ -101,5 +102,68 @@ class ReconciliationServiceTest extends TestCase {
 		// Should plan to create a circle
 		$actionTypes = array_column($result['actions'], 'type');
 		$this->assertContains('create_circle', $actionTypes);
+		// Should warn about empty folder listing
+		$this->assertNotEmpty($result['warnings']);
+	}
+
+	public function testGroupMemberRemovalSkippedWhenUsersUnresolved(): void {
+		// Keycloak has no orgs but has one group with 2 members
+		$this->keycloakAdmin->method('getOrganizations')->willReturn([]);
+		$this->keycloakAdmin->method('getGroups')->willReturn([
+			['id' => 'grp-1', 'name' => 'junovy-talk', 'attributes' => []],
+		]);
+		$this->keycloakAdmin->method('getGroupMembers')->willReturn([
+			['id' => 'kc-user-1', 'username' => 'user1'],
+			['id' => 'kc-user-2', 'username' => 'user2'],
+		]);
+
+		// Circles disabled (skip org sync)
+		$this->circlesService->method('isCirclesEnabled')->willReturn(false);
+
+		// GroupFolders disabled
+		$this->groupFoldersService->method('isGroupFoldersEnabled')->willReturn(false);
+
+		// The group exists in Nextcloud with 3 members (user1-nc, user2-nc, user3-nc)
+		$this->groupManager->method('groupExists')->willReturn(true);
+
+		$existingUser1 = $this->createMock(IUser::class);
+		$existingUser1->method('getUID')->willReturn('user1-nc');
+		$existingUser2 = $this->createMock(IUser::class);
+		$existingUser2->method('getUID')->willReturn('user2-nc');
+		$existingUser3 = $this->createMock(IUser::class);
+		$existingUser3->method('getUID')->willReturn('user3-nc');
+
+		$mockGroup = $this->createMock(IGroup::class);
+		$mockGroup->method('getUsers')->willReturn([$existingUser1, $existingUser2, $existingUser3]);
+		$this->groupManager->method('get')->with('junovy-talk')->willReturn($mockGroup);
+
+		// Only user1 can be resolved, user2 cannot (not yet provisioned)
+		$computedUserId1 = hash('sha256', '1_0_kc-user-1');
+		$this->localIdService->method('getId')->willReturnMap([
+			[1, 'kc-user-1', $computedUserId1],
+			[1, 'kc-user-2', hash('sha256', '1_0_kc-user-2')],
+		]);
+		$this->userMapper->method('userExists')->willReturnMap([
+			[$computedUserId1, true],
+			[hash('sha256', '1_0_kc-user-2'), false], // user2 not provisioned
+		]);
+
+		$resolvedUser = $this->createMock(IUser::class);
+		$resolvedUser->method('getUID')->willReturn($computedUserId1);
+		$this->userManager->method('get')->willReturnMap([
+			[$computedUserId1, $resolvedUser],
+		]);
+
+		// Cleanup search
+		$this->groupManager->method('search')->willReturn([]);
+
+		$result = $this->service->reconcile(providerId: 1, dryRun: false);
+
+		// Should NOT have removed any members — 1 of 2 Keycloak members was unresolved
+		$actionTypes = array_column($result['actions'], 'type');
+		$this->assertNotContains('remove_group_member', $actionTypes);
+		// Should have a warning about unresolved members
+		$warningText = implode(' ', $result['warnings']);
+		$this->assertStringContainsString('skipping member removal', $warningText);
 	}
 }
