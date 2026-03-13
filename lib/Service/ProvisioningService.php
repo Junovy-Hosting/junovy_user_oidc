@@ -575,7 +575,7 @@ class ProvisioningService {
 	}
 
 	public function provisionUserGroups(IUser $user, int $providerId, object $idTokenPayload): ?array {
-		// Disabled: group provisioning is handled by junovy-nextcloud-provisioner service (JUN-836)
+		// Disabled: group provisioning is handled by junovy-cloud-provisioner service (JUN-836)
 		return null;
 		$groupsWhitelistRegex = $this->getGroupWhitelistRegex($providerId);
 
@@ -773,7 +773,7 @@ class ProvisioningService {
 	 * @return array|null Array of provisioned organizations, or null if Teams provisioning is disabled
 	 */
 	public function provisionUserTeams(IUser $user, int $providerId, object $idTokenPayload): ?array {
-		// Disabled: team/circle provisioning is handled by junovy-nextcloud-provisioner service (JUN-836)
+		// Disabled: team/circle provisioning is handled by junovy-cloud-provisioner service (JUN-836)
 		return null;
 		// Check if CirclesService is available
 		if ($this->circlesService === null) {
