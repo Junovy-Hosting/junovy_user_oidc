@@ -59,6 +59,7 @@ if (!class_exists('OC')) {
 // Load stubs for OC-namespaced classes (these extend OCP classes, so must be loaded after autoloader)
 // Load stubs in dependency order - base stubs first
 $stubOrder = [
+	'symfony_console.php',
 	'oc_hooks_emitter.php',
 	'oc_user.php',
 	'oc_app.php',
