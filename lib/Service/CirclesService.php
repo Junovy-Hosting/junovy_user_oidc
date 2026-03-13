@@ -302,6 +302,66 @@ class CirclesService {
 	}
 
 	/**
+	 * Get all members of a circle as an array of user IDs.
+	 *
+	 * @param object $circle The circle to get members for
+	 * @return string[] Array of Nextcloud user IDs
+	 */
+	public function getCircleMembers(object $circle): array {
+		$manager = $this->getCirclesManager();
+		if ($manager === null) {
+			return [];
+		}
+
+		if (!$this->startSuperSession()) {
+			return [];
+		}
+
+		try {
+			$circleDetails = $manager->getCircle($circle->getSingleId(), true);
+			$members = $circleDetails->getMembers();
+			$userIds = [];
+			foreach ($members as $member) {
+				$typeUser = $this->getCirclesMemberConstant('TYPE_USER', self::FALLBACK_MEMBER_TYPE_USER);
+				if ($member->getUserType() === $typeUser) {
+					$userIds[] = $member->getUserId();
+				}
+			}
+			return $userIds;
+		} catch (Throwable $e) {
+			$this->logger->warning('Failed to get circle members for ' . $circle->getDisplayName(), ['exception' => $e]);
+			return [];
+		} finally {
+			$this->stopSuperSession();
+		}
+	}
+
+	/**
+	 * Get all circles (teams) visible to the admin.
+	 *
+	 * @return array Array of circle objects
+	 */
+	public function getAllCircles(): array {
+		$manager = $this->getCirclesManager();
+		if ($manager === null) {
+			return [];
+		}
+
+		if (!$this->startSuperSession()) {
+			return [];
+		}
+
+		try {
+			return $manager->probeCircles();
+		} catch (Throwable $e) {
+			$this->logger->warning('Failed to list all circles', ['exception' => $e]);
+			return [];
+		} finally {
+			$this->stopSuperSession();
+		}
+	}
+
+	/**
 	 * Get a circle by its ID or name
 	 *
 	 * @param string $identifier Circle ID or name
