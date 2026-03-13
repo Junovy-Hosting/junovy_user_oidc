@@ -21,6 +21,7 @@ use OCA\UserOIDC\Listener\InternalTokenRequestedListener;
 use OCA\UserOIDC\Listener\TimezoneHandlingListener;
 use OCA\UserOIDC\Listener\TokenInvalidatedListener;
 use OCA\UserOIDC\Service\ID4MeService;
+use OCA\UserOIDC\Service\KeycloakAdminService;
 use OCA\UserOIDC\Service\ProviderService;
 use OCA\UserOIDC\Service\SettingsService;
 use OCA\UserOIDC\Service\TokenService;
@@ -71,6 +72,22 @@ class Application extends App implements IBootstrap {
 		if (class_exists(\OCP\Authentication\Events\TokenInvalidatedEvent::class)) {
 			$context->registerEventListener(\OCP\Authentication\Events\TokenInvalidatedEvent::class, TokenInvalidatedListener::class);
 		}
+
+		// Register KeycloakAdminService with env-based configuration
+		$this->getContainer()->registerService(KeycloakAdminService::class, function ($c) {
+			$keycloakBaseUrl = getenv('KEYCLOAK_PROVISIONING_BASE_URL')
+				?: 'http://keycloak.keycloak.svc.cluster.local/realms/dds';
+			$clientId = getenv('KEYCLOAK_PROVISIONING_CLIENT_ID') ?: '';
+			$clientSecret = getenv('KEYCLOAK_PROVISIONING_CLIENT_SECRET') ?: '';
+
+			return new KeycloakAdminService(
+				$c->get(\OCP\Http\Client\IClientService::class),
+				$c->get(\Psr\Log\LoggerInterface::class),
+				$keycloakBaseUrl,
+				$clientId,
+				$clientSecret,
+			);
+		});
 	}
 
 	public function boot(IBootContext $context): void {
