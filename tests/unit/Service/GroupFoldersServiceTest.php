@@ -15,20 +15,20 @@ use PHPUnit\Framework\TestCase;
 class GroupFoldersServiceTest extends TestCase {
 
 	public function testParseQuota(): void {
-		$this->assertEquals(10 * 1024 * 1024 * 1024, GroupFoldersService::parseQuota('10 GB'));
-		$this->assertEquals(250 * 1024 * 1024 * 1024, GroupFoldersService::parseQuota('250 GB'));
-		$this->assertEquals(1024 * 1024 * 1024 * 1024, GroupFoldersService::parseQuota('1 TB'));
+		$this->assertEquals(10 * 1073741824, GroupFoldersService::parseQuota('10 GB'));
+		$this->assertEquals(268435456000, GroupFoldersService::parseQuota('250 GB'));
+		$this->assertEquals(1099511627776, GroupFoldersService::parseQuota('1 TB'));
 		$this->assertEquals(-3, GroupFoldersService::parseQuota('Unlimited'));
 		$this->assertEquals(0, GroupFoldersService::parseQuota('None'));
 		// Default when null
-		$this->assertEquals(250 * 1024 * 1024 * 1024, GroupFoldersService::parseQuota(null));
+		$this->assertEquals(268435456000, GroupFoldersService::parseQuota(null));
 	}
 
 	public function testParseQuotaCaseInsensitive(): void {
 		$this->assertEquals(-3, GroupFoldersService::parseQuota('unlimited'));
 		$this->assertEquals(0, GroupFoldersService::parseQuota('none'));
-		$this->assertEquals(10 * 1024 * 1024 * 1024, GroupFoldersService::parseQuota('10 gb'));
-		$this->assertEquals(1024 * 1024 * 1024 * 1024, GroupFoldersService::parseQuota('1 tb'));
+		$this->assertEquals(10 * 1073741824, GroupFoldersService::parseQuota('10 gb'));
+		$this->assertEquals(1099511627776, GroupFoldersService::parseQuota('1 tb'));
 	}
 
 	public function testParseFolderAccessAttribute(): void {

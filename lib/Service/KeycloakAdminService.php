@@ -41,16 +41,16 @@ class KeycloakAdminService {
 
 		$tokenUrl = $this->keycloakBaseUrl . '/protocol/openid-connect/token';
 
-		$response = $this->httpClient->post($tokenUrl, [
-			'body' => [
-				'grant_type' => 'client_credentials',
-				'client_id' => $this->clientId,
-				'client_secret' => $this->clientSecret,
-			],
-		]);
-
-		if ($response->getStatusCode() !== 200) {
-			throw new \RuntimeException('Failed to fetch Keycloak access token: HTTP ' . $response->getStatusCode());
+		try {
+			$response = $this->httpClient->post($tokenUrl, [
+				'body' => [
+					'grant_type' => 'client_credentials',
+					'client_id' => $this->clientId,
+					'client_secret' => $this->clientSecret,
+				],
+			]);
+		} catch (\Exception $e) {
+			throw new \RuntimeException('Failed to fetch Keycloak access token: ' . $e->getMessage(), 0, $e);
 		}
 
 		$data = json_decode($response->getBody(), true);
@@ -64,28 +64,27 @@ class KeycloakAdminService {
 	/**
 	 * Make an authenticated GET request to the Keycloak Admin API.
 	 * Retries once on 401 with a fresh token.
+	 *
+	 * Nextcloud's IClient throws on non-2xx status codes, so we catch
+	 * exceptions and inspect the message for 401 to trigger a retry.
 	 */
 	private function adminGet(string $path, array $query = []): array {
 		$url = $this->getAdminUrl() . $path;
-		$attempt = 0;
 
-		while ($attempt < 2) {
-			$response = $this->httpClient->get($url, [
-				'headers' => ['Authorization' => 'Bearer ' . $this->getAccessToken()],
-				'query' => $query,
-			]);
-
-			if ($response->getStatusCode() === 401 && $attempt === 0) {
-				$this->accessToken = null;
-				$attempt++;
-				continue;
+		for ($attempt = 0; $attempt < 2; $attempt++) {
+			try {
+				$response = $this->httpClient->get($url, [
+					'headers' => ['Authorization' => 'Bearer ' . $this->getAccessToken()],
+					'query' => $query,
+				]);
+				return json_decode($response->getBody(), true);
+			} catch (\Exception $e) {
+				if ($attempt === 0 && str_contains($e->getMessage(), '401')) {
+					$this->accessToken = null;
+					continue;
+				}
+				throw new \RuntimeException("Keycloak API error for {$path}: " . $e->getMessage(), 0, $e);
 			}
-
-			if ($response->getStatusCode() !== 200) {
-				throw new \RuntimeException("Keycloak API error: HTTP {$response->getStatusCode()} for {$path}");
-			}
-
-			return json_decode($response->getBody(), true);
 		}
 
 		throw new \RuntimeException("Keycloak API auth failed after retry for {$path}");

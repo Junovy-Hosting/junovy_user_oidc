@@ -20,7 +20,7 @@ use Throwable;
 class GroupFoldersService {
 
 	private const GROUPFOLDERS_APP_ID = 'groupfolders';
-	private const DEFAULT_QUOTA_BYTES = 250 * 1024 * 1024 * 1024; // 250 GB
+	private const DEFAULT_QUOTA_BYTES = 268435456000; // 250 GB
 
 	/** @var object|null FolderManager instance */
 	private ?object $folderManager = null;
@@ -240,10 +240,10 @@ class GroupFoldersService {
 			$value = (int)$matches[1];
 			$unit = strtolower($matches[2]);
 			if ($unit === 'gb') {
-				return $value * 1024 * 1024 * 1024;
+				return $value * 1073741824; // 1024^3
 			}
 			if ($unit === 'tb') {
-				return $value * 1024 * 1024 * 1024 * 1024;
+				return $value * 1099511627776; // 1024^4
 			}
 		}
 
