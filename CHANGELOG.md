@@ -8,6 +8,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 8.11.0 – 2026-08-24
+
+- Support for Nextcloud 35
+- Correctly get the list of groups @ArtificialOwl [#1494](https://github.com/nextcloud/user_oidc/pull/1494)
+- Save sub of an user for faster lookup and more uid stability @CarlSchwan [#1498](https://github.com/nextcloud/user_oidc/pull/1498)
+
 ## 8.10.1 – 2026-04-24
 
 ### Fixed
