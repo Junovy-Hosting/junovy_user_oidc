@@ -34,7 +34,7 @@ class OcsApiController extends OCSController {
 	 * Create or update a user for a backend provider.
 	 *
 	 * @param int $providerId Numeric ID of the provider backend
-	 * @param string $userId Provider-specific user identifier
+	 * @param non-empty-string $userId Provider-specific user identifier
 	 * @param string|null $displayName Optional display name to set for the user
 	 * @param string|null $email Optional email address to set for the user
 	 * @param string|null $quota Optional quota value to set for the user

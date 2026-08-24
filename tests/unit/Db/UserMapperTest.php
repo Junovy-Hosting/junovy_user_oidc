@@ -7,6 +7,7 @@
 
 declare(strict_types=1);
 
+use OCA\UserOIDC\Db\User;
 use OCA\UserOIDC\Db\UserMapper;
 use OCA\UserOIDC\Service\LocalIdService;
 use OCP\AppFramework\Db\DoesNotExistException;
@@ -39,7 +40,7 @@ class UserMapperTest extends TestCase {
 		$this->db = $this->createMock(IDBConnection::class);
 		$this->userMapper = $this->getMockBuilder(UserMapper::class)
 			->setConstructorArgs([$this->db, $this->idService, $this->config])
-			->onlyMethods(['getUser', 'insert'])
+			->onlyMethods(['getUser', 'getByProviderAndSub', 'insert', 'update'])
 			->getMock();
 	}
 
@@ -67,6 +68,10 @@ class UserMapperTest extends TestCase {
 
 	#[DataProvider('dataCreate')]
 	public function testCreate(int $providerId, string $sub, string $generatedId, bool $id4me, string $expected): void {
+		$this->userMapper->expects(self::once())
+			->method('getByProviderAndSub')
+			->willThrowException(new DoesNotExistException('No user'));
+
 		$this->idService->expects(self::once())->method('getId')->with($providerId, $sub, $id4me)->willReturn($generatedId);
 
 		$this->userMapper->expects(self::once())
@@ -78,7 +83,84 @@ class UserMapperTest extends TestCase {
 			->willReturnCallback(function ($arg) {
 				return $arg;
 			});
+		$this->userMapper->expects(self::never())->method('update');
 
-		Assert::assertEquals($expected, $this->userMapper->getOrCreate($providerId, $sub, $id4me)->getUserId());
+		$user = $this->userMapper->getOrCreate($providerId, $sub, $id4me);
+		Assert::assertEquals($expected, $user->getUserId());
+		Assert::assertSame($providerId, $user->getProviderId());
+		Assert::assertSame($sub, $user->getSub());
+	}
+
+	public function testCreateHashesOverlongSub(): void {
+		$longSub = str_repeat('a', 300);
+
+		$this->userMapper->expects(self::once())
+			->method('getByProviderAndSub')
+			->willThrowException(new DoesNotExistException('No user'));
+
+		$this->idService->expects(self::once())->method('getId')->willReturn('short-user-id');
+
+		$this->userMapper->expects(self::once())
+			->method('getUser')
+			->willThrowException(new DoesNotExistException('No user'));
+
+		$this->userMapper->expects(self::once())
+			->method('insert')
+			->willReturnCallback(function ($arg) {
+				return $arg;
+			});
+
+		$user = $this->userMapper->getOrCreate(1, $longSub);
+		Assert::assertSame(hash('sha256', $longSub), $user->getSub());
+	}
+
+	public function testGetOrCreateBackfillsExistingUserWithoutStableIdentifier(): void {
+		// simulates an account provisioned before provider_id/sub existed:
+		// not found by that pair yet, but its computed uid already exists
+		$existing = new User();
+		$existing->setUserId('existing-user');
+		$existing->setDisplayName('Existing User');
+
+		$this->userMapper->expects(self::once())
+			->method('getByProviderAndSub')
+			->willThrowException(new DoesNotExistException('No user'));
+
+		$this->idService->expects(self::once())->method('getId')->willReturn('existing-user');
+
+		$this->userMapper->expects(self::once())
+			->method('getUser')
+			->willReturn($existing);
+
+		$this->userMapper->expects(self::once())
+			->method('update')
+			->willReturnCallback(function ($arg) {
+				return $arg;
+			});
+		$this->userMapper->expects(self::never())->method('insert');
+
+		$user = $this->userMapper->getOrCreate(5, 'the-sub');
+		Assert::assertSame(5, $user->getProviderId());
+		Assert::assertSame('the-sub', $user->getSub());
+	}
+
+	public function testGetOrCreateReturnsExistingUserByProviderAndSubWithoutComputingAUid(): void {
+		$existing = new User();
+		$existing->setUserId('existing-user');
+		$existing->setDisplayName('Existing User');
+		$existing->setProviderId(5);
+		$existing->setSub('the-sub');
+
+		$this->userMapper->expects(self::once())
+			->method('getByProviderAndSub')
+			->with(5, 'the-sub')
+			->willReturn($existing);
+
+		$this->idService->expects(self::never())->method('getId');
+		$this->userMapper->expects(self::never())->method('getUser');
+		$this->userMapper->expects(self::never())->method('update');
+		$this->userMapper->expects(self::never())->method('insert');
+
+		$user = $this->userMapper->getOrCreate(5, 'the-sub');
+		Assert::assertSame($existing, $user);
 	}
 }
