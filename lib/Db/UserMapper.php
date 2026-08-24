@@ -152,7 +152,43 @@ class UserMapper extends QBMapper {
 		}
 	}
 
+	/**
+	 * @param non-empty-string $sub Sub of the user hashed if it exceed 256 characters
+	 * @throws \OCP\AppFramework\Db\DoesNotExistException
+	 * @throws \OCP\AppFramework\Db\MultipleObjectsReturnedException
+	 */
+	protected function getByProviderAndSub(int $providerId, string $sub): User {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('*')
+			->from($this->getTableName())
+			->where($qb->expr()->eq('provider_id', $qb->createNamedParameter($providerId, IQueryBuilder::PARAM_INT)))
+			->andWhere($qb->expr()->eq('sub', $qb->createNamedParameter($sub, IQueryBuilder::PARAM_STR)));
+
+		/** @var User $user */
+		$user = $this->findEntity($qb);
+		$this->userCache->set($user->getUserId(), $user);
+		return $user;
+	}
+
+	/**
+	 * @param non-empty-string $sub
+	 */
 	public function getOrCreate(int $providerId, string $sub, bool $id4me = false): User {
+		// the sub is the stable identifier we want to keep around, so guard it
+		// against the column length the same way the userId is further below
+		$storedSub = strlen($sub) > 256 ? hash('sha256', $sub) : $sub;
+
+		try {
+			// look this identity up by its immutable (provider, sub) pair
+			// first: if it has been provisioned before, this always returns
+			// its existing account, even if the uid-generation settings
+			// changed since - this is what keeps a provider's own attribute
+			// drift from forking the account into a second, empty one
+			return $this->getByProviderAndSub($providerId, $storedSub);
+		} catch (IMapperException $e) {
+			// not seen under this provider+sub yet, fall through below
+		}
+
 		$userId = $this->idService->getId($providerId, $sub, $id4me);
 
 		if (strlen($userId) > 64) {
@@ -160,7 +196,16 @@ class UserMapper extends QBMapper {
 		}
 
 		try {
-			return $this->getUser($userId);
+			$user = $this->getUser($userId);
+			if ($user->getProviderId() === null || $user->getSub() === null) {
+				// backfill accounts that were provisioned before these columns
+				// existed, so their next login takes the fast path above
+				$user->setProviderId($providerId);
+				$user->setSub($storedSub);
+				$user = $this->update($user);
+				$this->userCache->set($userId, $user);
+			}
+			return $user;
 		} catch (IMapperException $e) {
 			// just ignore and continue
 		}
@@ -168,6 +213,8 @@ class UserMapper extends QBMapper {
 		$user = new User();
 		$user->setUserId($userId);
 		$user->setDisplayName('');
+		$user->setProviderId($providerId);
+		$user->setSub($storedSub);
 		$user = $this->insert($user);
 		$this->userCache->set($userId, $user);
 		return $user;

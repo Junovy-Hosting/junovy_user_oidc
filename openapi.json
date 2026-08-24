@@ -1567,7 +1567,8 @@
                                     },
                                     "userId": {
                                         "type": "string",
-                                        "description": "Provider-specific user identifier"
+                                        "description": "Provider-specific user identifier",
+                                        "minLength": 1
                                     },
                                     "displayName": {
                                         "type": "string",
