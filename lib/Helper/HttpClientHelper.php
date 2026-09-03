@@ -88,6 +88,6 @@ class HttpClientHelper implements HttpClient {
 			$contents = stream_get_contents($body);
 			return $contents !== false ? $contents : '';
 		}
-		return $body;
+		return $body ?? '';
 	}
 }
