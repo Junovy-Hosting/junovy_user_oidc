@@ -77,7 +77,8 @@ class UserMapperTest extends TestCase {
 		// the computed uid is looked up first; when it differs from the sub, the raw sub
 		// is tried as well (legacy accounts provisioned before unique user IDs)
 		$expectedUid = strlen($generatedId) > 64 ? hash('sha256', $generatedId) : $generatedId;
-		$this->userMapper->expects(self::exactly($expectedUid === $sub ? 1 : 2))
+		$legacyLookups = ($expectedUid === $sub || strlen($sub) > 64) ? 0 : 1;
+		$this->userMapper->expects(self::exactly(1 + $legacyLookups))
 			->method('getUser')
 			->willThrowException(new DoesNotExistException('No user'));
 
