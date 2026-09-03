@@ -74,7 +74,10 @@ class UserMapperTest extends TestCase {
 
 		$this->idService->expects(self::once())->method('getId')->with($providerId, $sub, $id4me)->willReturn($generatedId);
 
-		$this->userMapper->expects(self::once())
+		// the computed uid is looked up first; when it differs from the sub, the raw sub
+		// is tried as well (legacy accounts provisioned before unique user IDs)
+		$expectedUid = strlen($generatedId) > 64 ? hash('sha256', $generatedId) : $generatedId;
+		$this->userMapper->expects(self::exactly($expectedUid === $sub ? 1 : 2))
 			->method('getUser')
 			->willThrowException(new DoesNotExistException('No user'));
 
