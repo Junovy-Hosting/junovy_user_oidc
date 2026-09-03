@@ -32,7 +32,7 @@ class OIDCService {
 			return [];
 		}
 
-		$this->logger->debug('Fetching user info endpoint');
+		$this->logger->debug('[UserInfo] Fetching user info endpoint', ['userinfo_url' => $url]);
 
 		// Get TLS verify setting for this provider
 		$tlsVerify = $this->providerService->getConfigValue(
@@ -50,6 +50,7 @@ class OIDCService {
 		try {
 			return json_decode($this->clientService->get($url, [], $options), true);
 		} catch (Throwable $e) {
+			$this->logger->warning('[UserInfo] Failed to fetch user info endpoint', ['exception' => $e]);
 			return [];
 		}
 	}

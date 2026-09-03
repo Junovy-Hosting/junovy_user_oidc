@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+use OCA\UserOIDC\AppInfo\Application;
+use OCA\UserOIDC\Db\ProviderMapper;
 use OCA\UserOIDC\Db\User;
 use OCA\UserOIDC\Db\UserMapper;
 use OCA\UserOIDC\Event\AttributeMappedEvent;
@@ -25,9 +27,27 @@ use OCP\ISession;
 use OCP\IUser;
 use OCP\IUserManager;
 use OCP\L10N\IFactory;
+use OCP\Security\ICrypto;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
+
+class TestProvisioningBackendUser extends User {
+	public function getUserId(): string {
+		return '';
+	}
+
+	public function setUserId(string $userId): void {
+	}
+
+	public function getDisplayName(): string {
+		return '';
+	}
+
+	public function setDisplayName(string $displayName): void {
+	}
+}
 
 class ProvisioningServiceTest extends TestCase {
 	/** @var ProvisioningService | MockObject */
@@ -36,7 +56,7 @@ class ProvisioningServiceTest extends TestCase {
 	/** @var LocalIdService | MockObject */
 	private $idService;
 
-	/** @var ProvisioningService | MockObject */
+	/** @var ProviderService | MockObject */
 	private $providerService;
 
 	/** @var IConfig | MockObject */
@@ -75,6 +95,27 @@ class ProvisioningServiceTest extends TestCase {
 
 	/** @var CirclesService | MockObject */
 	private $circlesService;
+	/** @var ProviderMapper | MockObject */
+	private $providerMapper;
+
+	/** @var ICrypto | MockObject */
+	private $crypto;
+
+	/**
+	 * Login-time group/team provisioning is off by default since JUN-836 (it is handled by the
+	 * junovy-cloud-provisioner service). Tests exercising the provisioning logic itself enable
+	 * it through the config.php toggle, exactly as an installation would.
+	 */
+	private function enableLoginTimeProvisioning(): void {
+		$this->config
+			->method('getSystemValue')
+			->willReturnCallback(function (string $key, $default = '') {
+				if ($key === Application::APP_ID) {
+					return ['login_time_provisioning' => true];
+				}
+				return $default;
+			});
+	}
 
 	public function setUp(): void {
 		parent::setUp();
@@ -92,6 +133,8 @@ class ProvisioningServiceTest extends TestCase {
 		$this->session = $this->createMock(ISession::class);
 		$this->l10nFactory = $this->createMock(IFactory::class);
 		$this->circlesService = $this->createMock(CirclesService::class);
+		$this->providerMapper = $this->createMock(ProviderMapper::class);
+		$this->crypto = $this->createMock(ICrypto::class);
 
 		$this->provisioningService = new ProvisioningService(
 			$this->idService,
@@ -107,6 +150,8 @@ class ProvisioningServiceTest extends TestCase {
 			$this->config,
 			$this->session,
 			$this->l10nFactory,
+			$this->providerMapper,
+			$this->crypto,
 			$this->circlesService,
 		);
 	}
@@ -122,43 +167,41 @@ class ProvisioningServiceTest extends TestCase {
 		$userId = 'userId123';
 		$providerId = 312;
 
-		$backendUser = $this->getMockBuilder(User::class)
-			->addMethods(['getUserId', 'setUserId', 'getDisplayName', 'setDisplayName'])
+		$backendUser = $this->getMockBuilder(TestProvisioningBackendUser::class)
+			->onlyMethods(['getUserId', 'setUserId', 'getDisplayName', 'setDisplayName'])
 			->getMock();
 		$backendUser->method('getUserId')
 			->willReturn($userId);
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_MAPPING_EMAIL, 'email', 'email'],
-					[$providerId, ProviderService::SETTING_MAPPING_DISPLAYNAME, 'name', 'name'],
-					[$providerId, ProviderService::SETTING_MAPPING_QUOTA, 'quota', 'quota'],
-					[$providerId, ProviderService::SETTING_GROUP_PROVISIONING, '0', '0'],
-					[$providerId, ProviderService::SETTING_MAPPING_LANGUAGE, 'language', 'language'],
-					[$providerId, ProviderService::SETTING_MAPPING_LOCALE, 'locale', 'locale'],
-					[$providerId, ProviderService::SETTING_MAPPING_ADDRESS, 'address', 'address'],
-					[$providerId, ProviderService::SETTING_MAPPING_STREETADDRESS, 'street_address', 'street_address'],
-					[$providerId, ProviderService::SETTING_MAPPING_POSTALCODE, 'postal_code', 'postal_code'],
-					[$providerId, ProviderService::SETTING_MAPPING_LOCALITY, 'locality', 'locality'],
-					[$providerId, ProviderService::SETTING_MAPPING_REGION, 'region', 'region'],
-					[$providerId, ProviderService::SETTING_MAPPING_COUNTRY, 'country', 'country'],
-					[$providerId, ProviderService::SETTING_MAPPING_WEBSITE, 'website', 'website'],
-					[$providerId, ProviderService::SETTING_MAPPING_AVATAR, 'avatar', 'avatar'],
-					[$providerId, ProviderService::SETTING_MAPPING_TWITTER, 'twitter', 'twitter'],
-					[$providerId, ProviderService::SETTING_MAPPING_FEDIVERSE, 'fediverse', 'fediverse'],
-					[$providerId, ProviderService::SETTING_MAPPING_ORGANISATION, 'organisation', 'organisation'],
-					[$providerId, ProviderService::SETTING_MAPPING_ROLE, 'role', 'role'],
-					[$providerId, ProviderService::SETTING_MAPPING_HEADLINE, 'headline', 'headline'],
-					[$providerId, ProviderService::SETTING_MAPPING_BIOGRAPHY, 'biography', 'biography'],
-					[$providerId, ProviderService::SETTING_MAPPING_PHONE, 'phone_number', 'phone_number'],
-					[$providerId, ProviderService::SETTING_MAPPING_GENDER, 'gender', 'gender'],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-					[$providerId, ProviderService::SETTING_MAPPING_PRONOUNS, 'pronouns', 'pronouns'],
-					[$providerId, ProviderService::SETTING_MAPPING_BIRTHDATE, 'birthdate', 'birthdate'],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_MAPPING_EMAIL, 'email', 'email'],
+				[$providerId, ProviderService::SETTING_MAPPING_DISPLAYNAME, 'name', 'name'],
+				[$providerId, ProviderService::SETTING_MAPPING_QUOTA, 'quota', 'quota'],
+				[$providerId, ProviderService::SETTING_GROUP_PROVISIONING, '0', '0'],
+				[$providerId, ProviderService::SETTING_MAPPING_LANGUAGE, 'language', 'language'],
+				[$providerId, ProviderService::SETTING_MAPPING_LOCALE, 'locale', 'locale'],
+				[$providerId, ProviderService::SETTING_MAPPING_ADDRESS, 'address', 'address'],
+				[$providerId, ProviderService::SETTING_MAPPING_STREETADDRESS, 'street_address', 'street_address'],
+				[$providerId, ProviderService::SETTING_MAPPING_POSTALCODE, 'postal_code', 'postal_code'],
+				[$providerId, ProviderService::SETTING_MAPPING_LOCALITY, 'locality', 'locality'],
+				[$providerId, ProviderService::SETTING_MAPPING_REGION, 'region', 'region'],
+				[$providerId, ProviderService::SETTING_MAPPING_COUNTRY, 'country', 'country'],
+				[$providerId, ProviderService::SETTING_MAPPING_WEBSITE, 'website', 'website'],
+				[$providerId, ProviderService::SETTING_MAPPING_AVATAR, 'avatar', 'avatar'],
+				[$providerId, ProviderService::SETTING_MAPPING_TWITTER, 'twitter', 'twitter'],
+				[$providerId, ProviderService::SETTING_MAPPING_FEDIVERSE, 'fediverse', 'fediverse'],
+				[$providerId, ProviderService::SETTING_MAPPING_ORGANISATION, 'organisation', 'organisation'],
+				[$providerId, ProviderService::SETTING_MAPPING_ROLE, 'role', 'role'],
+				[$providerId, ProviderService::SETTING_MAPPING_HEADLINE, 'headline', 'headline'],
+				[$providerId, ProviderService::SETTING_MAPPING_BIOGRAPHY, 'biography', 'biography'],
+				[$providerId, ProviderService::SETTING_MAPPING_PHONE, 'phone_number', 'phone_number'],
+				[$providerId, ProviderService::SETTING_MAPPING_GENDER, 'gender', 'gender'],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+				[$providerId, ProviderService::SETTING_MAPPING_PRONOUNS, 'pronouns', 'pronouns'],
+				[$providerId, ProviderService::SETTING_MAPPING_BIRTHDATE, 'birthdate', 'birthdate'],
+			]);
 
 		$this->userMapper
 			->method('getOrCreate')
@@ -200,43 +243,41 @@ class ProvisioningServiceTest extends TestCase {
 		$userId = 'userId123';
 		$providerId = 312;
 
-		$backendUser = $this->getMockBuilder(User::class)
-			->addMethods(['getUserId', 'setUserId', 'getDisplayName', 'setDisplayName'])
+		$backendUser = $this->getMockBuilder(TestProvisioningBackendUser::class)
+			->onlyMethods(['getUserId', 'setUserId', 'getDisplayName', 'setDisplayName'])
 			->getMock();
 		$backendUser->method('getUserId')
 			->willReturn($userId);
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_MAPPING_EMAIL, 'email', 'email'],
-					[$providerId, ProviderService::SETTING_MAPPING_DISPLAYNAME, 'name', 'name'],
-					[$providerId, ProviderService::SETTING_MAPPING_QUOTA, 'quota', 'quota'],
-					[$providerId, ProviderService::SETTING_GROUP_PROVISIONING, '0', '0'],
-					[$providerId, ProviderService::SETTING_MAPPING_LANGUAGE, 'language', 'language'],
-					[$providerId, ProviderService::SETTING_MAPPING_LOCALE, 'locale', 'locale'],
-					[$providerId, ProviderService::SETTING_MAPPING_ADDRESS, 'address', 'address'],
-					[$providerId, ProviderService::SETTING_MAPPING_STREETADDRESS, 'street_address', 'street_address'],
-					[$providerId, ProviderService::SETTING_MAPPING_POSTALCODE, 'postal_code', 'postal_code'],
-					[$providerId, ProviderService::SETTING_MAPPING_LOCALITY, 'locality', 'locality'],
-					[$providerId, ProviderService::SETTING_MAPPING_REGION, 'region', 'region'],
-					[$providerId, ProviderService::SETTING_MAPPING_COUNTRY, 'country', 'country'],
-					[$providerId, ProviderService::SETTING_MAPPING_WEBSITE, 'website', 'website'],
-					[$providerId, ProviderService::SETTING_MAPPING_AVATAR, 'avatar', 'avatar'],
-					[$providerId, ProviderService::SETTING_MAPPING_TWITTER, 'twitter', 'twitter'],
-					[$providerId, ProviderService::SETTING_MAPPING_FEDIVERSE, 'fediverse', 'fediverse'],
-					[$providerId, ProviderService::SETTING_MAPPING_ORGANISATION, 'organisation', 'organisation'],
-					[$providerId, ProviderService::SETTING_MAPPING_ROLE, 'role', 'role'],
-					[$providerId, ProviderService::SETTING_MAPPING_HEADLINE, 'headline', 'headline'],
-					[$providerId, ProviderService::SETTING_MAPPING_BIOGRAPHY, 'biography', 'biography'],
-					[$providerId, ProviderService::SETTING_MAPPING_PHONE, 'phone_number', 'phone_number'],
-					[$providerId, ProviderService::SETTING_MAPPING_GENDER, 'gender', 'gender'],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-					[$providerId, ProviderService::SETTING_MAPPING_PRONOUNS, 'pronouns', 'pronouns'],
-					[$providerId, ProviderService::SETTING_MAPPING_BIRTHDATE, 'birthdate', 'birthdate'],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_MAPPING_EMAIL, 'email', 'email'],
+				[$providerId, ProviderService::SETTING_MAPPING_DISPLAYNAME, 'name', 'name'],
+				[$providerId, ProviderService::SETTING_MAPPING_QUOTA, 'quota', 'quota'],
+				[$providerId, ProviderService::SETTING_GROUP_PROVISIONING, '0', '0'],
+				[$providerId, ProviderService::SETTING_MAPPING_LANGUAGE, 'language', 'language'],
+				[$providerId, ProviderService::SETTING_MAPPING_LOCALE, 'locale', 'locale'],
+				[$providerId, ProviderService::SETTING_MAPPING_ADDRESS, 'address', 'address'],
+				[$providerId, ProviderService::SETTING_MAPPING_STREETADDRESS, 'street_address', 'street_address'],
+				[$providerId, ProviderService::SETTING_MAPPING_POSTALCODE, 'postal_code', 'postal_code'],
+				[$providerId, ProviderService::SETTING_MAPPING_LOCALITY, 'locality', 'locality'],
+				[$providerId, ProviderService::SETTING_MAPPING_REGION, 'region', 'region'],
+				[$providerId, ProviderService::SETTING_MAPPING_COUNTRY, 'country', 'country'],
+				[$providerId, ProviderService::SETTING_MAPPING_WEBSITE, 'website', 'website'],
+				[$providerId, ProviderService::SETTING_MAPPING_AVATAR, 'avatar', 'avatar'],
+				[$providerId, ProviderService::SETTING_MAPPING_TWITTER, 'twitter', 'twitter'],
+				[$providerId, ProviderService::SETTING_MAPPING_FEDIVERSE, 'fediverse', 'fediverse'],
+				[$providerId, ProviderService::SETTING_MAPPING_ORGANISATION, 'organisation', 'organisation'],
+				[$providerId, ProviderService::SETTING_MAPPING_ROLE, 'role', 'role'],
+				[$providerId, ProviderService::SETTING_MAPPING_HEADLINE, 'headline', 'headline'],
+				[$providerId, ProviderService::SETTING_MAPPING_BIOGRAPHY, 'biography', 'biography'],
+				[$providerId, ProviderService::SETTING_MAPPING_PHONE, 'phone_number', 'phone_number'],
+				[$providerId, ProviderService::SETTING_MAPPING_GENDER, 'gender', 'gender'],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+				[$providerId, ProviderService::SETTING_MAPPING_PRONOUNS, 'pronouns', 'pronouns'],
+				[$providerId, ProviderService::SETTING_MAPPING_BIRTHDATE, 'birthdate', 'birthdate'],
+			]);
 
 		$this->userMapper
 			->method('getOrCreate')
@@ -261,7 +302,6 @@ class ProvisioningServiceTest extends TestCase {
 		$property->method('getName')->willReturn('twitter');
 		$property->method('getScope')->willReturn(IAccountManager::SCOPE_LOCAL);
 		$property->method('getValue')->willReturnCallback(function () use (&$twitterProperty) {
-			echo 'GETTING: ' . $twitterProperty;
 			return $twitterProperty;
 		});
 
@@ -278,7 +318,6 @@ class ProvisioningServiceTest extends TestCase {
 			->method('getProperty')
 			->with('twitter')
 			->willReturn($property);
-
 
 		$this->accountManager->expects(self::once())
 			->method('getAccount')
@@ -306,7 +345,111 @@ class ProvisioningServiceTest extends TestCase {
 		);
 	}
 
-	public function dataProvisionUserGroups() {
+	public static function dataGetClaimValues(): array {
+		return [
+			'flat simple key' => [
+				'email',
+				(object)['email' => 'alice@example.com'],
+				'alice@example.com',
+			],
+			'nested via dot' => [
+				'custom.nickname',
+				(object)['custom' => (object)['nickname' => 'alice']],
+				'alice',
+			],
+			'URL-based flat key' => [
+				'https://idp.example.com/claims/groups',
+				(object)['https://idp.example.com/claims/groups' => ['admin', 'users']],
+				['admin', 'users'],
+			],
+			'URL key with nested navigation' => [
+				'https://idp.example.com/attrs.role',
+				(object)['https://idp.example.com/attrs' => (object)['role' => 'admin']],
+				'admin',
+			],
+			'URL key with dotted sub-key' => [
+				'https://idp.example.com/attrs.user.role',
+				(object)['https://idp.example.com/attrs' => (object)['user.role' => 'admin']],
+				'admin',
+			],
+			'deep nesting three levels' => [
+				'a.b.c',
+				(object)['a' => (object)['b' => (object)['c' => 'deep']]],
+				'deep',
+			],
+			'pipe fallback first match' => [
+				'missing | email',
+				(object)['email' => 'bob@example.com'],
+				'bob@example.com',
+			],
+			'pipe fallback second match' => [
+				'primary_email | email',
+				(object)['primary_email' => 'first@example.com', 'email' => 'second@example.com'],
+				'first@example.com',
+			],
+			'non-existent path returns null' => [
+				'does.not.exist',
+				(object)['other' => 'value'],
+				null,
+			],
+			'empty path returns null' => [
+				'',
+				(object)['key' => 'value'],
+				null,
+			],
+			'literal dot key takes precedence over nested' => [
+				'a.b',
+				(object)['a.b' => 'flat', 'a' => (object)['b' => 'nested']],
+				'flat',
+			],
+			'array payload' => [
+				'user.name',
+				['user' => ['name' => 'alice']],
+				'alice',
+			],
+			'URL key as array payload' => [
+				'https://idp.example.com/claims/roles',
+				['https://idp.example.com/claims/roles' => ['editor']],
+				['editor'],
+			],
+		];
+	}
+
+	#[DataProvider('dataGetClaimValues')]
+	public function testGetClaimValues(string $claimPath, object|array $tokenPayload, mixed $expected): void {
+		$providerId = 1;
+
+		$this->providerService
+			->method('getSetting')
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '1'],
+			]);
+
+		$result = $this->provisioningService->getClaimValues($tokenPayload, $claimPath, $providerId);
+		$this->assertEquals($expected, $result);
+	}
+
+	public function testGetClaimValuesWithoutNestedResolution(): void {
+		$providerId = 1;
+
+		$this->providerService
+			->method('getSetting')
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+			]);
+
+		// With nested resolution disabled, dot-containing keys should still work as literal keys
+		$payload = (object)['https://idp.example.com/claims/groups' => ['admin']];
+		$result = $this->provisioningService->getClaimValues($payload, 'https://idp.example.com/claims/groups', $providerId);
+		$this->assertEquals(['admin'], $result);
+
+		// But nested navigation should NOT work
+		$payload = (object)['custom' => (object)['nickname' => 'alice']];
+		$result = $this->provisioningService->getClaimValues($payload, 'custom.nickname', $providerId);
+		$this->assertNull($result);
+	}
+
+	public static function dataProvisionUserGroups() {
 		return [
 			[
 				'1',
@@ -366,15 +509,9 @@ class ProvisioningServiceTest extends TestCase {
 		];
 	}
 
-	/** @dataProvider dataProvisionUserGroups */
+	#[DataProvider('dataProvisionUserGroups')]
 	public function testProvisionUserGroups(string $gid, string $displayName, object $payload, string $group_whitelist, bool $expect_delete_local_group): void {
-		$this->markTestSkipped(
-			'Login-time group provisioning was intentionally disabled in JUN-836; it is '
-			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
-			. '::provisionUserGroups() now returns null immediately, so this test asserts '
-			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
-			. 'are still here if login-time provisioning is ever restored.'
-		);
+		$this->enableLoginTimeProvisioning();
 		$user = $this->createMock(IUser::class);
 		$group = $this->createMock(IGroup::class);
 		$local_group = $this->createMock(IGroup::class);
@@ -386,15 +523,21 @@ class ProvisioningServiceTest extends TestCase {
 				[
 					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', $group_whitelist],
 					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
 					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
 					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
 				]
 			));
 
 		$this->groupManager
-			->method('getUserGroups')
+			->method('getUserGroupIds')
 			->with($user)
-			->willReturn([$local_group]);
+			->willReturn(['local_group']);
+
+		$this->groupManager
+			->method('get')
+			->with('local_group')
+			->willReturn($local_group);
 
 		$local_group
 			->method('getGID')
@@ -432,13 +575,7 @@ class ProvisioningServiceTest extends TestCase {
 	 * Test that users are not removed from protected groups (default: users, admin)
 	 */
 	public function testProvisionUserGroupsProtectedGroupsDefault(): void {
-		$this->markTestSkipped(
-			'Login-time group provisioning was intentionally disabled in JUN-836; it is '
-			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
-			. '::provisionUserGroups() now returns null immediately, so this test asserts '
-			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
-			. 'are still here if login-time provisioning is ever restored.'
-		);
+		$this->enableLoginTimeProvisioning();
 		$user = $this->createMock(IUser::class);
 		$providerId = 421;
 
@@ -462,15 +599,19 @@ class ProvisioningServiceTest extends TestCase {
 				[
 					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
 					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
 					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
 					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
 				]
 			));
 
 		$this->groupManager
-			->method('getUserGroups')
+			->method('getUserGroupIds')
 			->with($user)
-			->willReturn([$usersGroup, $adminGroup, $otherGroup]);
+			->willReturn(['users', 'admin', 'other_group']);
+		$this->groupManager
+			->method('get')
+			->willReturnMap([['users', $usersGroup], ['admin', $adminGroup], ['other_group', $otherGroup]]);
 
 		// Protected groups should NOT have users removed
 		$usersGroup->expects(self::never())
@@ -512,13 +653,7 @@ class ProvisioningServiceTest extends TestCase {
 	 * Test that users are not removed from custom protected groups
 	 */
 	public function testProvisionUserGroupsProtectedGroupsCustom(): void {
-		$this->markTestSkipped(
-			'Login-time group provisioning was intentionally disabled in JUN-836; it is '
-			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
-			. '::provisionUserGroups() now returns null immediately, so this test asserts '
-			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
-			. 'are still here if login-time provisioning is ever restored.'
-		);
+		$this->enableLoginTimeProvisioning();
 		$user = $this->createMock(IUser::class);
 		$providerId = 421;
 
@@ -538,15 +673,19 @@ class ProvisioningServiceTest extends TestCase {
 				[
 					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
 					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
 					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
 					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'custom_protected,staff'],
 				]
 			));
 
 		$this->groupManager
-			->method('getUserGroups')
+			->method('getUserGroupIds')
 			->with($user)
-			->willReturn([$customProtectedGroup, $otherGroup]);
+			->willReturn(['custom_protected', 'other_group']);
+		$this->groupManager
+			->method('get')
+			->willReturnMap([['custom_protected', $customProtectedGroup], ['other_group', $otherGroup]]);
 
 		// Custom protected group should NOT have users removed
 		$customProtectedGroup->expects(self::never())
@@ -586,13 +725,7 @@ class ProvisioningServiceTest extends TestCase {
 	 * Test that protected groups work together with whitelist regex
 	 */
 	public function testProvisionUserGroupsProtectedGroupsWithWhitelistRegex(): void {
-		$this->markTestSkipped(
-			'Login-time group provisioning was intentionally disabled in JUN-836; it is '
-			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
-			. '::provisionUserGroups() now returns null immediately, so this test asserts '
-			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
-			. 'are still here if login-time provisioning is ever restored.'
-		);
+		$this->enableLoginTimeProvisioning();
 		$user = $this->createMock(IUser::class);
 		$providerId = 421;
 
@@ -615,15 +748,19 @@ class ProvisioningServiceTest extends TestCase {
 				[
 					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', '/^blue/'],
 					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
 					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
 					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
 				]
 			));
 
 		$this->groupManager
-			->method('getUserGroups')
+			->method('getUserGroupIds')
 			->with($user)
-			->willReturn([$usersGroup, $whitelistedGroup, $nonWhitelistedGroup]);
+			->willReturn(['users', 'blue_team', 'red_team']);
+		$this->groupManager
+			->method('get')
+			->willReturnMap([['users', $usersGroup], ['blue_team', $whitelistedGroup], ['red_team', $nonWhitelistedGroup]]);
 
 		// Protected group should NOT have users removed
 		$usersGroup->expects(self::never())
@@ -667,13 +804,7 @@ class ProvisioningServiceTest extends TestCase {
 	 * Test that empty protected groups setting falls back to default
 	 */
 	public function testProvisionUserGroupsProtectedGroupsEmptySetting(): void {
-		$this->markTestSkipped(
-			'Login-time group provisioning was intentionally disabled in JUN-836; it is '
-			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
-			. '::provisionUserGroups() now returns null immediately, so this test asserts '
-			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
-			. 'are still here if login-time provisioning is ever restored.'
-		);
+		$this->enableLoginTimeProvisioning();
 		$user = $this->createMock(IUser::class);
 		$providerId = 421;
 
@@ -690,15 +821,19 @@ class ProvisioningServiceTest extends TestCase {
 				[
 					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
 					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
 					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
 					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', ''],
 				]
 			));
 
 		$this->groupManager
-			->method('getUserGroups')
+			->method('getUserGroupIds')
 			->with($user)
-			->willReturn([$usersGroup]);
+			->willReturn(['users']);
+		$this->groupManager
+			->method('get')
+			->willReturnMap([['users', $usersGroup]]);
 
 		// Empty setting should fall back to default (users, admin)
 		$usersGroup->expects(self::never())
@@ -732,13 +867,7 @@ class ProvisioningServiceTest extends TestCase {
 	 * Test that protected groups with whitespace are handled correctly
 	 */
 	public function testProvisionUserGroupsProtectedGroupsWithWhitespace(): void {
-		$this->markTestSkipped(
-			'Login-time group provisioning was intentionally disabled in JUN-836; it is '
-			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
-			. '::provisionUserGroups() now returns null immediately, so this test asserts '
-			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
-			. 'are still here if login-time provisioning is ever restored.'
-		);
+		$this->enableLoginTimeProvisioning();
 		$user = $this->createMock(IUser::class);
 		$providerId = 421;
 
@@ -755,15 +884,19 @@ class ProvisioningServiceTest extends TestCase {
 				[
 					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
 					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
 					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
 					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', ' users , staff , admin '],
 				]
 			));
 
 		$this->groupManager
-			->method('getUserGroups')
+			->method('getUserGroupIds')
 			->with($user)
-			->willReturn([$protectedGroup]);
+			->willReturn(['staff']);
+		$this->groupManager
+			->method('get')
+			->willReturnMap([['staff', $protectedGroup]]);
 
 		// Group with whitespace in setting should still be protected
 		$protectedGroup->expects(self::never())
@@ -813,6 +946,7 @@ class ProvisioningServiceTest extends TestCase {
 			->will($this->returnValueMap(
 				[
 					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
 					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
 					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
 					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
@@ -865,6 +999,7 @@ class ProvisioningServiceTest extends TestCase {
 			->will($this->returnValueMap(
 				[
 					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
 					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
 					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
 					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
@@ -1016,7 +1151,7 @@ class ProvisioningServiceTest extends TestCase {
 		$user->method('getUID')->willReturn('testuser');
 
 		$this->groupManager->expects($this->never())->method('createGroup');
-		$this->groupManager->expects($this->never())->method('getUserGroups');
+		$this->groupManager->expects($this->never())->method('getUserGroupIds');
 
 		$result = $this->provisioningService->provisionUserGroups(
 			$user,
@@ -1069,13 +1204,7 @@ class ProvisioningServiceTest extends TestCase {
 	 * Test provisionUserTeams creates circles and adds users
 	 */
 	public function testProvisionUserTeamsCreatesCirclesAndAddsUsers(): void {
-		$this->markTestSkipped(
-			'Login-time team/circle provisioning was intentionally disabled in JUN-836; it is '
-			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
-			. '::provisionUserTeams() now returns null immediately, so this test asserts '
-			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
-			. 'are still here if login-time provisioning is ever restored.'
-		);
+		$this->enableLoginTimeProvisioning();
 		$user = $this->createMock(IUser::class);
 		$user->method('getUID')->willReturn('testuser');
 		$providerId = 789;
@@ -1133,13 +1262,7 @@ class ProvisioningServiceTest extends TestCase {
 	 * Test provisionUserTeams removes user from circles they no longer belong to
 	 */
 	public function testProvisionUserTeamsRemovesUserFromOldCircles(): void {
-		$this->markTestSkipped(
-			'Login-time team/circle provisioning was intentionally disabled in JUN-836; it is '
-			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
-			. '::provisionUserTeams() now returns null immediately, so this test asserts '
-			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
-			. 'are still here if login-time provisioning is ever restored.'
-		);
+		$this->enableLoginTimeProvisioning();
 		$user = $this->createMock(IUser::class);
 		$user->method('getUID')->willReturn('testuser');
 		$providerId = 789;

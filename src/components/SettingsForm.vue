@@ -272,6 +272,9 @@
 		<p class="settings-hint">
 			{{ t('user_oidc', 'By default every user will get a unique user ID that is a hashed value of the provider and user ID. This can be turned off but uniqueness of users accross multiple user backends and providers is no longer preserved then.') }}
 		</p>
+		<NcNoteCard v-if="!localProvider.settings.uniqueUid" type="warning">
+			{{ t('user_oidc', 'Keep in mind that disabling "Unique user IDs" means that this provider can produce user IDs that are identical to user IDs from other providers (and from other user backends if you are in non-auto-provisioning mode). This means this provider can be potentially used to authenticate as users from other providers/backends. This might be what you want to achieve. In any case, please make sure you trust this provider.') }}
+		</NcNoteCard>
 		<NcCheckboxRadioSwitch
 			v-model="localProvider.settings.providerBasedId"
 			wrapper-element="div">
@@ -553,6 +556,14 @@
 			{{ t('user_oidc', 'Proxy LDAP requests through OIDC provider') }}
 		</p>
 
+		<NcCheckboxRadioSwitch
+			v-model="localProvider.settings.enrichLoginIdTokenWithUserinfo"
+			wrapper-element="div">
+			{{ t('user_oidc', 'Enrich login ID token with userinfo') }}
+		</NcCheckboxRadioSwitch>
+		<p class="settings-hint">
+			{{ t('user_oidc', 'Fetch additional information not found in the login ID token from the userinfo endpoint. This setting is overwritten if the global enrich_login_id_token_with_userinfo option is enabled.') }}
+		</p>
 		<div class="provider-edit--footer">
 			<NcButton @click="$emit('cancel-form')">
 				{{ t('user_oidc', 'Cancel') }}
@@ -575,12 +586,14 @@ import ChevronDownIcon from 'vue-material-design-icons/ChevronDown.vue'
 
 import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
 import NcButton from '@nextcloud/vue/components/NcButton'
+import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
 
 export default {
 	name: 'SettingsForm',
 	components: {
 		NcCheckboxRadioSwitch,
 		NcButton,
+		NcNoteCard,
 		AlertOutlineIcon,
 		CheckIcon,
 		ChevronRightIcon,

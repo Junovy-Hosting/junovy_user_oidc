@@ -47,17 +47,18 @@ class HttpClientHelperTest extends TestCase {
 	}
 
 	public function testGetWithTlsVerifyFromOptions() {
+		// An explicit 'verify' option must take precedence, so the global config is never consulted
 		$response = $this->createMock(IResponse::class);
 		$response->expects(self::once())
 			->method('getBody')
 			->willReturn('response body');
 
-		$this->config->expects(self::once())
+		$this->config->expects(self::never())
 			->method('getSystemValue')
 			->with('junovy_user_oidc', [])
 			->willReturn([]);
 
-		$this->config->expects(self::once())
+		$this->config->expects(self::never())
 			->method('getSystemValueBool')
 			->with('debug', false)
 			->willReturn(false);
@@ -97,12 +98,13 @@ class HttpClientHelperTest extends TestCase {
 	}
 
 	public function testPostWithOptions() {
+		// An explicit 'verify' option must take precedence, so the global config is never consulted
 		$response = $this->createMock(IResponse::class);
 		$response->expects(self::once())
 			->method('getBody')
 			->willReturn('response body');
 
-		$this->config->expects(self::once())
+		$this->config->expects(self::never())
 			->method('getSystemValue')
 			->with('junovy_user_oidc', [])
 			->willReturn([]);
@@ -153,12 +155,13 @@ class HttpClientHelperTest extends TestCase {
 	}
 
 	public function testPostWithOptionsTlsVerifyOverride() {
+		// An explicit 'verify' option must take precedence, so the global config is never consulted
 		$response = $this->createMock(IResponse::class);
 		$response->expects(self::once())
 			->method('getBody')
 			->willReturn('response body');
 
-		$this->config->expects(self::once())
+		$this->config->expects(self::never())
 			->method('getSystemValue')
 			->with('junovy_user_oidc', [])
 			->willReturn(['httpclient.allowselfsigned' => true]);

@@ -8,6 +8,7 @@
 		<directory>unit</directory>
 		<!-- Exclude tests that require full Nextcloud environment -->
 		<exclude>unit/Db/UserMapperTest.php</exclude>
+		<exclude>unit/User/BackendTest.php</exclude>
 	</testsuite>
 	<groups>
 		<exclude>

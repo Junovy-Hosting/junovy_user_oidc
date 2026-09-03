@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+
 /**
  * SPDX-FileCopyrightText: 2020 Nextcloud GmbH and Nextcloud contributors
  * SPDX-License-Identifier: AGPL-3.0-or-later
@@ -8,11 +9,9 @@ declare(strict_types=1);
 
 namespace OCA\UserOIDC\Helper;
 
-use OCP\IConfig;
-
-require_once __DIR__ . '/../../vendor/autoload.php';
-use Id4me\RP\HttpClient;
+use OCA\UserOIDC\Vendor\Id4me\RP\HttpClient;
 use OCP\Http\Client\IClientService;
+use OCP\IConfig;
 
 class HttpClientHelper implements HttpClient {
 
@@ -23,41 +22,43 @@ class HttpClientHelper implements HttpClient {
 	}
 
 	public function get($url, array $headers = [], array $options = []) {
-		$oidcConfig = $this->config->getSystemValue('junovy_user_oidc', []);
-
-		$client = $this->clientService->newClient();
-
-		$debugModeEnabled = $this->config->getSystemValueBool('debug', false);
-
-		// Check if TLS verify is explicitly set in options (per-provider setting)
-		if (!isset($options['verify'])) {
-			// Check global config
-			if ($debugModeEnabled
-				|| (isset($oidcConfig['httpclient.allowselfsigned'])
-					&& !in_array($oidcConfig['httpclient.allowselfsigned'], [false, 'false', 0, '0'], true))) {
-				$options['verify'] = false;
-			}
+		// An explicit per-provider 'verify' option takes precedence over the global config
+		if (!isset($options['verify']) && $this->shouldDisableSSLVerification()) {
+			$options['verify'] = false;
 		}
 
-		return $client->get($url, $options)->getBody();
+		return $this->clientService->newClient()->get($url, $options)->getBody();
 	}
 
 	public function post($url, $body, array $headers = []) {
-		$oidcConfig = $this->config->getSystemValue('junovy_user_oidc', []);
-		$client = $this->clientService->newClient();
-
 		$options = [
 			'headers' => $headers,
 			'body' => $body,
 		];
 
-		// Check global config for self-signed certificates
-		if (isset($oidcConfig['httpclient.allowselfsigned'])
-			&& !in_array($oidcConfig['httpclient.allowselfsigned'], [false, 'false', 0, '0'], true)) {
+		if ($this->shouldDisableSSLVerification()) {
 			$options['verify'] = false;
 		}
 
-		return $client->post($url, $options)->getBody();
+		return $this->clientService->newClient()->post($url, $options)->getBody();
+	}
+
+	private function shouldDisableSSLVerification(): bool {
+		if ($this->config->getSystemValueBool('debug', false)) {
+			return true;
+		}
+
+		$oidcConfig = $this->config->getSystemValue('junovy_user_oidc', []);
+		if (!isset($oidcConfig['httpclient.allowselfsigned'])) {
+			return false;
+		}
+
+		$allowSelfSigned = $oidcConfig['httpclient.allowselfsigned'];
+
+		return !($allowSelfSigned === false
+			|| $allowSelfSigned === 'false'
+			|| $allowSelfSigned === 0
+			|| $allowSelfSigned === '0');
 	}
 
 	/**
@@ -70,29 +71,19 @@ class HttpClientHelper implements HttpClient {
 	 * @return string
 	 */
 	public function postWithOptions($url, $body, array $headers = [], array $options = []): string {
-		$oidcConfig = $this->config->getSystemValue('junovy_user_oidc', []);
-		$client = $this->clientService->newClient();
-
 		$requestOptions = [
 			'headers' => $headers,
 			'body' => $body,
 		];
 
-		// Merge in provided options (verify key)
+		// An explicit per-provider 'verify' option takes precedence over the global config
 		if (isset($options['verify'])) {
 			$requestOptions['verify'] = $options['verify'];
+		} elseif ($this->shouldDisableSSLVerification()) {
+			$requestOptions['verify'] = false;
 		}
 
-		// Check if TLS verify is explicitly set in options (per-provider setting)
-		if (!isset($requestOptions['verify'])) {
-			// Check global config
-			if (isset($oidcConfig['httpclient.allowselfsigned'])
-				&& !in_array($oidcConfig['httpclient.allowselfsigned'], [false, 'false', 0, '0'], true)) {
-				$requestOptions['verify'] = false;
-			}
-		}
-
-		$body = $client->post($url, $requestOptions)->getBody();
+		$body = $this->clientService->newClient()->post($url, $requestOptions)->getBody();
 		if (is_resource($body)) {
 			$contents = stream_get_contents($body);
 			return $contents !== false ? $contents : '';

@@ -8,8 +8,10 @@
 namespace OCA\UserOIDC\Service;
 
 use InvalidArgumentException;
+use Locale;
 use OC\Accounts\AccountManager;
 use OCA\UserOIDC\AppInfo\Application;
+use OCA\UserOIDC\Db\ProviderMapper;
 use OCA\UserOIDC\Db\UserMapper;
 use OCA\UserOIDC\Event\AttributeMappedEvent;
 use OCP\Accounts\IAccountManager;
@@ -28,6 +30,7 @@ use OCP\IUser;
 use OCP\IUserManager;
 use OCP\L10N\IFactory;
 use OCP\PreConditionNotMetException;
+use OCP\Security\ICrypto;
 use OCP\User\Events\UserChangedEvent;
 use Psr\Log\LoggerInterface;
 use Throwable;
@@ -48,8 +51,21 @@ class ProvisioningService {
 		private IConfig $config,
 		private ISession $session,
 		private IFactory $l10nFactory,
+		private ProviderMapper $providerMapper,
+		private ICrypto $crypto,
 		private ?CirclesService $circlesService = null,
 	) {
+	}
+
+	/**
+	 * Login-time group and team provisioning was disabled in JUN-836: it is handled by the
+	 * junovy-cloud-provisioner service instead. It can be re-enabled per installation with
+	 * 'junovy_user_oidc' => ['login_time_provisioning' => true] in config.php.
+	 */
+	public function isLoginTimeProvisioningEnabled(): bool {
+		$oidcSystemConfig = $this->config->getSystemValue(Application::APP_ID, []);
+		return isset($oidcSystemConfig['login_time_provisioning'])
+			&& in_array($oidcSystemConfig['login_time_provisioning'], [true, 'true', 1, '1'], true);
 	}
 
 	public function hasOidcUserProvisitioned(string $userId): bool {
@@ -87,20 +103,10 @@ class ProvisioningService {
 		$alternatives = explode('|', $claimPath);
 
 		foreach ($alternatives as $altPath) {
-			$parts = explode('.', trim($altPath));
-			$value = $tokenPayload;
-
-			foreach ($parts as $part) {
-				if (is_object($value) && property_exists($value, $part)) {
-					$value = $value->{$part};
-				} elseif (is_array($value) && array_key_exists($part, $value)) {
-					$value = $value[$part];
-				} else {
-					continue 2;
-				}
+			$result = $this->resolveNestedClaim($tokenPayload, trim($altPath));
+			if ($result !== null) {
+				return $result;
 			}
-
-			return $value;
 		}
 
 		return null;
@@ -113,6 +119,50 @@ class ProvisioningService {
 	public function getClaimValue(object|array $tokenPayload, string $claimPath, int $providerId): mixed {
 		$value = $this->getClaimValues($tokenPayload, $claimPath, $providerId);
 		return is_string($value) ? $value : null;
+	}
+
+	/**
+	 * Resolves a claim path against a token payload using greedy longest-prefix matching.
+	 *
+	 * Instead of splitting on every dot (which breaks URL-based claim names like
+	 * "https://idp.example.com/claims/groups" or literal dot keys like "user.role"),
+	 * this method first tries the full path as a literal key, then progressively
+	 * shorter dot-delimited prefixes (longest first), recursing into the remainder.
+	 */
+	private function resolveNestedClaim(object|array $data, string $path): mixed {
+		if ($path === '') {
+			return null;
+		}
+
+		// Try full path as literal key
+		if (is_object($data) && property_exists($data, $path)) {
+			return $data->{$path};
+		} elseif (is_array($data) && array_key_exists($path, $data)) {
+			return $data[$path];
+		}
+
+		// Try progressively shorter dot-prefixes (longest first)
+		$lastDot = strlen($path);
+		while (($lastDot = strrpos($path, '.', -(strlen($path) - $lastDot + 1))) !== false) {
+			$prefix = substr($path, 0, $lastDot);
+			$remainder = substr($path, $lastDot + 1);
+
+			$prefixValue = null;
+			if (is_object($data) && property_exists($data, $prefix)) {
+				$prefixValue = $data->{$prefix};
+			} elseif (is_array($data) && array_key_exists($prefix, $data)) {
+				$prefixValue = $data[$prefix];
+			}
+
+			if ($prefixValue !== null && (is_object($prefixValue) || is_array($prefixValue))) {
+				$result = $this->resolveNestedClaim($prefixValue, $remainder);
+				if ($result !== null) {
+					return $result;
+				}
+			}
+		}
+
+		return null;
 	}
 
 	/**
@@ -232,7 +282,7 @@ class ProvisioningService {
 		}
 
 		$account = $this->accountManager->getAccount($user);
-		$fallbackScope = 'v2-local';
+		$fallbackScope = IAccountManager::SCOPE_LOCAL;
 		$defaultScopes = array_merge(
 			AccountManager::DEFAULT_SCOPES,
 			$this->config->getSystemValue('account_manager.default_property_scope', []) ?? []
@@ -312,6 +362,9 @@ class ProvisioningService {
 		$this->logger->debug('Locale mapping event dispatched');
 		if ($event->hasValue()) {
 			$locale = $event->getValue();
+			// according to the RFC, the locale we get is in BCP47 format (for example, en-US or fr-CA)
+			// see https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims
+			$locale = Locale::canonicalize($locale);
 			$locales = $this->l10nFactory->findAvailableLocales();
 			$localeCodes = array_map(static function ($l) {
 				return $l['code'];
@@ -383,7 +436,7 @@ class ProvisioningService {
 		$this->eventDispatcher->dispatchTyped($event);
 		$this->logger->debug('Gender mapping event dispatched');
 		if ($event->hasValue() && $event->getValue() !== null && $event->getValue() !== '') {
-			$account->setProperty('gender', $event->getValue(), $fallbackScope, '1', '');
+			$account->setProperty('gender', $event->getValue(), $fallbackScope, IAccountManager::VERIFIED, '');
 		}
 
 		$simpleAccountPropertyAttributes = [
@@ -410,7 +463,7 @@ class ProvisioningService {
 			$this->eventDispatcher->dispatchTyped($event);
 			$this->logger->debug($property . ' mapping event dispatched');
 			if ($event->hasValue()) {
-				$account->setProperty($property, $event->getValue(), $defaultScopes[$property] ?? $fallbackScope, '1', '');
+				$account->setProperty($property, $event->getValue(), $defaultScopes[$property] ?? $fallbackScope, IAccountManager::VERIFIED, '');
 			}
 		}
 
@@ -447,7 +500,24 @@ class ProvisioningService {
 		if (filter_var($avatarAttribute, FILTER_VALIDATE_URL)) {
 			$client = $this->clientService->newClient();
 			try {
-				$avatarContent = $client->get($avatarAttribute)->getBody();
+				$response = $client->get($avatarAttribute);
+				$ct = $response->getHeader('Content-Type');
+
+				/** @psalm-suppress TypeDoesNotContainType */
+				if (is_array($ct)) {
+					$contentType = $ct[0] ?? '';
+				} else {
+					/** @psalm-suppress RedundantCast */
+					$contentType = (string)$ct;
+				}
+
+				$contentType = strtolower(trim(explode(';', $contentType)[0]));
+
+				if (!in_array($contentType, ['image/jpeg', 'image/png', 'image/gif'], true)) {
+					$this->logger->warning('Avatar response is not an image', ['content_type' => $contentType]);
+					return;
+				}
+				$avatarContent = $response->getBody();
 				if (is_resource($avatarContent)) {
 					$avatarContent = stream_get_contents($avatarContent);
 				}
@@ -469,6 +539,13 @@ class ProvisioningService {
 			$avatarContent = base64_decode(str_replace('data:image/jpeg;base64,', '', $avatarAttribute));
 			if ($avatarContent === false) {
 				$this->logger->warning('Failed to decode base64 JPEG avatar for user ' . $userId, ['avatar_attribute' => $avatarAttribute]);
+				return;
+			}
+		} else {
+			// fallback if it's not a URL and does not have a base64 data prefix: try to decode it as base64
+			$avatarContent = base64_decode($avatarAttribute);
+			if ($avatarContent === false) {
+				$this->logger->warning('Failed to decode base64 unprefixed avatar for user ' . $userId, ['avatar_attribute' => $avatarAttribute]);
 				return;
 			}
 		}
@@ -511,7 +588,7 @@ class ProvisioningService {
 		}
 	}
 
-	public function getSyncGroupsOfToken(int $providerId, object $idTokenPayload) {
+	public function getSyncGroupsOfToken(int $providerId, object $idTokenPayload): ?array {
 		$groupsAttribute = $this->providerService->getSetting($providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups');
 		$groupsData = $this->getClaimValues($idTokenPayload, $groupsAttribute, $providerId);
 
@@ -533,6 +610,18 @@ class ProvisioningService {
 				$groups = array_filter($groups);
 			}
 			$syncGroups = [];
+
+			$token = null;
+			$tenant = null;
+			if ($this->providerService->getSetting($providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0') === '1') {
+				$azureGroupSyncContext = $this->getAzureGroupSyncContext($providerId);
+				if ($azureGroupSyncContext === null) {
+					return null;
+				}
+
+				$tenant = $azureGroupSyncContext['tenant'];
+				$token = $azureGroupSyncContext['token'];
+			}
 
 			foreach ($groups as $k => $v) {
 				if (is_object($v)) {
@@ -560,10 +649,16 @@ class ProvisioningService {
 					}
 				}
 
-				// Note: Do NOT hash group IDs like user IDs. Group names from the IdP
-				// should be used as-is to maintain readability and proper group membership.
-				// The idService->getId() was incorrectly hashing group names with SHA256
-				// when SETTING_UNIQUE_UID was enabled.
+				if ($this->providerService->getSetting($providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0') === '1' && is_string($v)) {
+					$group = $this->getAzureGroupWithResolvedName($providerId, $tenant, $token, $v);
+					if ($group === null) {
+						continue;
+					}
+				}
+				// Note: Do NOT hash group IDs like user IDs (upstream calls idService->getId() here).
+				// Group names from the IdP should be used as-is to maintain readability and proper
+				// group membership. Hashing group names with SHA256 when SETTING_UNIQUE_UID is
+				// enabled produced unreadable groups.
 
 				$syncGroups[] = $group;
 			}
@@ -574,9 +669,111 @@ class ProvisioningService {
 		return null;
 	}
 
+	/**
+	 * @return array{tenant: string, token: string}|null
+	 */
+	private function getAzureGroupSyncContext(int $providerId): ?array {
+		$provider = $this->providerMapper->getProvider($providerId);
+		$url = $provider->getDiscoveryEndpoint();
+		$tenant = explode('//', $url);
+		$tenant = count($tenant) === 1 ? $tenant[0] : $tenant[1];
+		$tenant = explode('/', $tenant);
+		if (count($tenant) === 1) {
+			$this->logger->error('Could not figure out the tenant id. (Is the discovery endpoint formatted properly?) Will not sync groups');
+			return null;
+		}
+		$tenant = $tenant[1];
+
+		$client = $this->clientService->newClient();
+		try {
+			$response = $client->post("https://login.microsoftonline.com/$tenant/oauth2/v2.0/token", [
+				'headers' => [ 'Accept' => 'application/json' ],
+				'form_params' => [
+					'client_id' => $provider->getClientId(),
+					'scope' => 'https://graph.microsoft.com/.default',
+					'client_secret' => $this->crypto->decrypt($provider->getClientSecret()),
+					'grant_type' => 'client_credentials'
+				],
+				'http_errors' => false
+			]);
+		} catch (\Exception $e) {
+			$this->logger->error($e->getMessage());
+			return null;
+		}
+
+		$res = $response->getBody();
+		if (!is_string($res)) {
+			$this->logger->error('Could not fetch Bearer token for Microsoft Graph. Will not sync groups');
+			return null;
+		}
+
+		$res = json_decode($res, true);
+		if (empty($res) || empty($res['access_token']) || !is_string($res['access_token'])) {
+			$this->logger->error('Could not fetch Bearer token for Microsoft Graph. Will not sync groups');
+			return null;
+		}
+
+		return [
+			'tenant' => $tenant,
+			'token' => $res['access_token'],
+		];
+	}
+
+	private function getAzureGroupWithResolvedName(int $providerId, string $tenant, string $token, string $groupId): ?object {
+		$client = $this->clientService->newClient();
+		try {
+			$response = $client->get(
+				"https://graph.microsoft.com/v1.0/$tenant/groups/" . $groupId,
+				[ 'headers' => [ 'Accept' => 'application/json', 'Authorization' => "Bearer $token" ], 'http_errors' => false ]
+			);
+		} catch (\Exception $e) {
+			$this->logger->error($e->getMessage());
+			return null;
+		}
+
+		$res = $response->getBody();
+		if (!is_string($res)) {
+			$this->logger->error('No response from Microsoft Graph while fetching group name. Will not sync the group ' . $groupId);
+			return null;
+		}
+
+		$res = json_decode($res, true); // https://learn.microsoft.com/en-us/graph/api/group-get?view=graph-rest-1.0&tabs=http#response-1
+		if (isset($res['error'])) {
+			$errorMessage = !empty($res['error']['message']) && is_string($res['error']['message']) ? $res['error']['message'] : '';
+			$this->logger->error('Error response from Microsoft Graph while fetching group name. Will not sync the group ' . $groupId . '. Graph said: ' . $errorMessage);
+			return null;
+		}
+
+		if (empty($res['displayName'])) {
+			$this->logger->error('Empty response from Microsoft Graph while fetching group name. Will not sync the group ' . $groupId);
+			return null;
+		}
+
+		$group = (object)['gid' => $res['displayName']];
+		if ($this->providerService->getSetting($providerId, ProviderService::SETTING_PROVIDER_BASED_ID, '0') === '1') {
+			$providerName = $this->providerMapper->getProvider($providerId)->getIdentifier();
+			$group->gid = $providerName . '-' . $group->gid;
+		}
+
+		if (strlen($group->gid) > 64) {
+			$this->logger->warning('Group id ' . $group->gid . ' longer than supported. Group id truncated.');
+			$group->displayName = $group->gid;
+			$group->gid = substr($group->gid, 0, 64);
+			if (strlen($group->displayName) > 255) {
+				$this->logger->warning('Group name ' . $group->displayName . ' longer than supported. Group name truncated.');
+				$group->displayName = substr($group->displayName, 0, 255);
+			}
+		}
+
+		return $group;
+	}
+
 	public function provisionUserGroups(IUser $user, int $providerId, object $idTokenPayload): ?array {
-		// Disabled: group provisioning is handled by junovy-cloud-provisioner service (JUN-836)
-		return null;
+		if (!$this->isLoginTimeProvisioningEnabled()) {
+			$this->logger->debug('Login-time group provisioning is disabled (JUN-836), skipping');
+			return null;
+		}
+
 		$groupsWhitelistRegex = $this->getGroupWhitelistRegex($providerId);
 
 		$syncGroups = $this->getSyncGroupsOfToken($providerId, $idTokenPayload);
@@ -586,18 +783,18 @@ class ProvisioningService {
 		}
 
 		$protectedGroups = $this->getProtectedGroups($providerId);
-		$userGroups = $this->groupManager->getUserGroups($user);
-		foreach ($userGroups as $group) {
-			if (!in_array($group->getGID(), array_column($syncGroups, 'gid'))) {
+		$userGroups = $this->groupManager->getUserGroupIds($user);
+		foreach ($userGroups as $groupGID) {
+			if (!in_array($groupGID, array_column($syncGroups, 'gid'))) {
 				// Skip protected groups - never remove users from these groups
-				if (in_array($group->getGID(), $protectedGroups)) {
-					$this->logger->debug('Skipped removing user from protected group `' . $group->getGID() . '`');
+				if (in_array($groupGID, $protectedGroups)) {
+					$this->logger->debug('Skipped removing user from protected group `' . $groupGID . '`');
 					continue;
 				}
-				if ($groupsWhitelistRegex && !preg_match($groupsWhitelistRegex, $group->getGID())) {
+				if ($groupsWhitelistRegex && !preg_match($groupsWhitelistRegex, $groupGID)) {
 					continue;
 				}
-				$group->removeUser($user);
+				$this->groupManager->get($groupGID)?->removeUser($user);
 			}
 		}
 
@@ -615,7 +812,6 @@ class ProvisioningService {
 
 		return $syncGroups;
 	}
-
 
 	public function getGroupWhitelistRegex(int $providerId): string {
 		$regex = $this->providerService->getSetting($providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '');
@@ -773,8 +969,11 @@ class ProvisioningService {
 	 * @return array|null Array of provisioned organizations, or null if Teams provisioning is disabled
 	 */
 	public function provisionUserTeams(IUser $user, int $providerId, object $idTokenPayload): ?array {
-		// Disabled: team/circle provisioning is handled by junovy-cloud-provisioner service (JUN-836)
-		return null;
+		if (!$this->isLoginTimeProvisioningEnabled()) {
+			$this->logger->debug('Login-time team/circle provisioning is disabled (JUN-836), skipping');
+			return null;
+		}
+
 		// Check if CirclesService is available
 		if ($this->circlesService === null) {
 			$this->logger->debug('CirclesService not available, skipping Teams provisioning');

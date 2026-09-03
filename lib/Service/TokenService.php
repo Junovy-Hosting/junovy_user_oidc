@@ -20,6 +20,7 @@ use OCA\UserOIDC\Vendor\Firebase\JWT\JWT;
 use OCP\App\IAppManager;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Db\MultipleObjectsReturnedException;
+use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\Authentication\Exceptions\ExpiredTokenException;
 use OCP\Authentication\Exceptions\InvalidTokenException;
 use OCP\Authentication\Exceptions\WipeTokenException;
@@ -32,6 +33,8 @@ use OCP\IRequest;
 use OCP\ISession;
 use OCP\IURLGenerator;
 use OCP\IUserSession;
+use OCP\Lock\ILockingProvider;
+use OCP\Lock\LockedException;
 use OCP\PreConditionNotMetException;
 use OCP\Security\ICrypto;
 use OCP\Session\Exceptions\SessionNotAvailableException;
@@ -45,6 +48,7 @@ use Psr\Log\LoggerInterface;
 class TokenService {
 
 	private const SESSION_TOKEN_KEY = Application::APP_ID . '-user-token';
+	private const REFRESH_LOCK_KEY = Application::APP_ID . '-lock-key';
 
 	private IClient $client;
 
@@ -64,12 +68,13 @@ class TokenService {
 		private DiscoveryService $discoveryService,
 		private ProviderMapper $providerMapper,
 		private ProviderService $providerService,
+		private ILockingProvider $lockingProvider,
+		private ITimeFactory $timeFactory,
 	) {
-
 	}
 
 	public function storeToken(array $tokenData): Token {
-		$token = new Token($tokenData);
+		$token = new Token($tokenData, $this->timeFactory);
 		$this->session->set(self::SESSION_TOKEN_KEY, json_encode($token, JSON_THROW_ON_ERROR));
 		$this->logger->debug('[TokenService] Store token in the session', ['session_id' => $this->session->getId()]);
 		return $token;
@@ -78,12 +83,14 @@ class TokenService {
 	/**
 	 * Get the token stored in the session
 	 * If it has expired: try to refresh it
+	 * If it is expiring and $refreshIfExpiring is true: proactively refresh it to keep the IdP session alive
 	 *
 	 * @param bool $refreshIfExpired
+	 * @param bool $refreshIfExpiring Proactively refresh a still-valid but expiring token (past half its lifetime)
 	 * @return Token|null Return a token only if it is valid or has been successfully refreshed
 	 * @throws \JsonException
 	 */
-	public function getToken(bool $refreshIfExpired = true): ?Token {
+	public function getToken(bool $refreshIfExpired = true, bool $refreshIfExpiring = false): ?Token {
 		$sessionData = $this->session->get(self::SESSION_TOKEN_KEY);
 		$this->logger->debug('[TokenService] Get token from the session', ['session_id' => $this->session->getId()]);
 		if (!$sessionData) {
@@ -91,9 +98,14 @@ class TokenService {
 			return null;
 		}
 
-		$token = new Token(json_decode($sessionData, true, 512, JSON_THROW_ON_ERROR));
+		$token = new Token(json_decode($sessionData, true, 512, JSON_THROW_ON_ERROR), $this->timeFactory);
 		// token is still valid
 		if (!$token->isExpired()) {
+			// proactively refresh when past half the token lifetime to keep the IdP session alive
+			if ($refreshIfExpiring && $token->isExpiring() && $token->getRefreshToken() !== null && !$token->refreshIsExpired()) {
+				$this->logger->debug('[TokenService] getToken: token is expiring, proactively refreshing to keep IdP session alive, expires in ' . strval($token->getExpiresInFromNow()));
+				return $this->refresh($token);
+			}
 			$this->logger->debug('[TokenService] getToken: token is still valid, it expires in ' . strval($token->getExpiresInFromNow()) . ' and refresh expires in ' . strval($token->getRefreshExpiresInFromNow()));
 			return $token;
 		}
@@ -117,7 +129,7 @@ class TokenService {
 	 * @throws PreConditionNotMetException
 	 */
 	public function checkLoginToken(): void {
-		$storeLoginTokenEnabled = $this->appConfig->getValueString(Application::APP_ID, 'store_login_token', '0') === '1';
+		$storeLoginTokenEnabled = $this->appConfig->getValueString(Application::APP_ID, 'store_login_token', '0', lazy: true) === '1';
 		if (!$storeLoginTokenEnabled) {
 			return;
 		}
@@ -155,7 +167,7 @@ class TokenService {
 			return;
 		}
 
-		$token = $this->getToken();
+		$token = $this->getToken(refreshIfExpired: true, refreshIfExpiring: true);
 		if ($token === null) {
 			$this->logger->debug('[TokenService] checkLoginToken: token is null');
 			// if we don't have a token but we had one once,
@@ -174,6 +186,15 @@ class TokenService {
 	}
 
 	public function reauthenticate(int $providerId) {
+		if (!RequestClassificationService::isTopLevelHtmlNavigation($this->request)) {
+			$this->userSession->logout();
+			$this->logger->debug('[TokenService] reauthenticate skipped: request is not a top-level HTML navigation', [
+				'provider_id' => $providerId,
+				'request_uri' => $this->request->getRequestUri(),
+			]);
+			return;
+		}
+
 		// Logout the user and redirect to the oidc login flow to gather a fresh token
 		$this->userSession->logout();
 		$redirectUrl = $this->urlGenerator->linkToRouteAbsolute(Application::APP_ID . '.login.login', [
@@ -193,18 +214,56 @@ class TokenService {
 	 * @throws MultipleObjectsReturnedException
 	 */
 	public function refresh(Token $token): Token {
-		$oidcProvider = $this->providerMapper->getProvider($token->getProviderId());
-		$discovery = $this->discoveryService->obtainDiscovery($oidcProvider);
+		$lockKey = self::REFRESH_LOCK_KEY . '_' . $this->session->getId();
+
+		// Retry loop to acquire lock with timeout
+		$maxRetries = 50; // 5 seconds total (50 × 100ms)
+		$retryCount = 0;
+		$lockAcquired = false;
+
+		while (!$lockAcquired && $retryCount < $maxRetries) {
+			try {
+				$this->lockingProvider->acquireLock($lockKey, ILockingProvider::LOCK_EXCLUSIVE);
+				$lockAcquired = true;
+				$this->logger->debug('[TokenService] Acquired lock for token refresh');
+			} catch (LockedException $e) {
+				// Another request is refreshing, wait and retry
+				$retryCount++;
+				if ($retryCount >= $maxRetries) {
+					$this->logger->warning('[TokenService] Failed to acquire lock after retries, returning old token');
+					return $token;
+				}
+				usleep(100000); // 100ms between retries
+			}
+		}
 
 		try {
+			// Double-check: the token might have been refreshed:
+			//   * while we were waiting for the lock (another request held it)
+			//   * OR in another process between the moment this process checked
+			//     the token expiration and the moment it attempted to acquire the lock
+			$sessionData = $this->session->get(self::SESSION_TOKEN_KEY);
+			if ($sessionData) {
+				$currentToken = new Token(json_decode($sessionData, true, 512, JSON_THROW_ON_ERROR), $this->timeFactory);
+				if (!$currentToken->isExpired() && !$currentToken->isExpiring()) {
+					$this->logger->debug('[TokenService] Token already refreshed by another request');
+					return $currentToken;
+				}
+			}
+
+			// Token still expired, proceed with refresh
+			$oidcProvider = $this->providerMapper->getProvider($token->getProviderId());
+			$discovery = $this->discoveryService->obtainDiscovery($oidcProvider);
+
 			$clientSecret = $oidcProvider->getClientSecret();
 			if ($clientSecret !== '') {
 				try {
 					$clientSecret = $this->crypto->decrypt($clientSecret);
 				} catch (\Exception $e) {
-					$this->logger->error('[TokenService] Failed to decrypt oidc client secret to refresh the token');
+					$this->logger->error('[TokenService] Failed to decrypt oidc client secret');
 				}
 			}
+
 			$this->logger->debug('[TokenService] Refreshing the token: ' . $discovery['token_endpoint']);
 
 			// Get TLS verify setting for this provider
@@ -225,25 +284,24 @@ class TokenService {
 				[],
 				['verify' => $tlsVerify]
 			);
-			$this->logger->debug('[TokenService] Token refresh request params', [
-				'client_id' => $oidcProvider->getClientId(),
-				// 'client_secret' => $clientSecret,
-				'grant_type' => 'refresh_token',
-				// 'refresh_token' => $token->getRefreshToken(),
-			]);
 
 			$bodyArray = json_decode(trim($body), true, 512, JSON_THROW_ON_ERROR);
 			$this->logger->debug('[TokenService] ---- Refresh token success');
 			return $this->storeToken(
-				array_merge(
-					$bodyArray,
-					['provider_id' => $token->getProviderId()],
-				)
+				array_merge($bodyArray, ['provider_id' => $token->getProviderId()])
 			);
 		} catch (\Exception $e) {
-			$this->logger->error('[TokenService] Failed to refresh token ', ['exception' => $e]);
-			// Failed to refresh, return old token which will be retried or otherwise timeout if expired
+			$this->logger->error('[TokenService] Failed to refresh token', ['exception' => $e]);
 			return $token;
+		} finally {
+			if ($lockAcquired) {
+				try {
+					$this->lockingProvider->releaseLock($lockKey, ILockingProvider::LOCK_EXCLUSIVE);
+					$this->logger->debug('[TokenService] Released lock for token refresh');
+				} catch (\Exception $e) {
+					$this->logger->error('[TokenService] Failed to release lock', ['exception' => $e]);
+				}
+			}
 		}
 	}
 
@@ -266,7 +324,7 @@ class TokenService {
 	 * @throws \JsonException
 	 */
 	public function getExchangedToken(string $targetAudience, array $extraScopes = []): Token {
-		$storeLoginTokenEnabled = $this->appConfig->getValueString(Application::APP_ID, 'store_login_token', '0') === '1';
+		$storeLoginTokenEnabled = $this->appConfig->getValueString(Application::APP_ID, 'store_login_token', '0', lazy: true) === '1';
 		if (!$storeLoginTokenEnabled) {
 			throw new TokenExchangeFailedException(
 				'Failed to exchange token, storing the login token is disabled. It can be enabled in config.php',
@@ -337,9 +395,7 @@ class TokenService {
 			);
 			$this->logger->debug('[TokenService] Token exchange request params', [
 				'client_id' => $oidcProvider->getClientId(),
-				// 'client_secret' => $clientSecret,
 				'grant_type' => 'urn:ietf:params:oauth:grant-type:token-exchange',
-				// 'subject_token' => $loginToken->getAccessToken(),
 				'subject_token_type' => 'urn:ietf:params:oauth:token-type:access_token',
 				'requested_token_type' => 'urn:ietf:params:oauth:token-type:refresh_token',
 				'audience' => $targetAudience,
@@ -351,7 +407,7 @@ class TokenService {
 				$bodyArray,
 				['provider_id' => $loginToken->getProviderId()],
 			);
-			return new Token($tokenData);
+			return new Token($tokenData, $this->timeFactory);
 		} catch (ClientException|ServerException $e) {
 			$response = $e->getResponse();
 			$body = (string)$response->getBody();
@@ -422,6 +478,6 @@ class TokenService {
 			'refresh_expires_in' => method_exists($generationEvent, 'getRefreshExpiresIn')
 				? $generationEvent->getRefreshExpiresIn()
 				: $generationEvent->getExpiresIn(),
-		]);
+		], $this->timeFactory);
 	}
 }

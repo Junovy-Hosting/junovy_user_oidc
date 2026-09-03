@@ -7,16 +7,20 @@
 
 declare(strict_types=1);
 
-
 namespace OCA\UserOIDC\Service;
 
 use OCA\UserOIDC\AppInfo\Application;
 use OCA\UserOIDC\Db\Provider;
 use OCA\UserOIDC\Db\ProviderMapper;
+use OCA\UserOIDC\ResponseDefinitions;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\IAppConfig;
 use OCP\IConfig;
 
+/**
+ * @psalm-import-type UserOIDCProvider from ResponseDefinitions
+ * @psalm-import-type UserOIDCProviderSettings from ResponseDefinitions
+ */
 class ProviderService {
 	public const SETTING_CHECK_BEARER = 'checkBearer';
 	public const SETTING_SEND_ID_TOKEN_HINT = 'sendIdTokenHint';
@@ -56,7 +60,9 @@ class ProviderService {
 	public const SETTING_GROUP_WHITELIST_REGEX = 'groupWhitelistRegex';
 	public const SETTING_RESTRICT_LOGIN_TO_GROUPS = 'restrictLoginToGroups';
 	public const SETTING_PROTECTED_GROUPS = 'protectedGroups';
+	public const SETTING_AZURE_GROUP_NAMES = 'azureGroupNames';
 	public const SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING = 'nestedAndFallbackClaims';
+	public const SETTING_ENRICH_LOGIN_ID_TOKEN_WITH_USERINFO = 'enrichLoginIdTokenWithUserinfo';
 
 	// Teams/Circles provisioning settings (from Keycloak Organizations)
 	public const SETTING_TEAMS_PROVISIONING = 'teamsProvisioning';
@@ -94,6 +100,7 @@ class ProviderService {
 		self::SETTING_CHECK_BEARER => false,
 		self::SETTING_SEND_ID_TOKEN_HINT => false,
 		self::SETTING_RESTRICT_LOGIN_TO_GROUPS => false,
+		self::SETTING_AZURE_GROUP_NAMES => false,
 		self::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING => false,
 		self::SETTING_AUTO_REDIRECT => false,
 		self::SETTING_HIDE_PASSWORD_FORM => false,
@@ -107,6 +114,7 @@ class ProviderService {
 		self::SETTING_USE_EXTERNAL_STORAGE => false,
 		self::SETTING_PROXY_LDAP => false,
 		self::SETTING_TEAMS_PROVISIONING => false,
+		self::SETTING_ENRICH_LOGIN_ID_TOKEN_WITH_USERINFO => false,
 	];
 
 	public function __construct(
@@ -116,12 +124,15 @@ class ProviderService {
 	) {
 	}
 
+	/**
+	 * @return list<UserOIDCProvider>
+	 */
 	public function getProvidersWithSettings(): array {
 		$providers = $this->providerMapper->getProviders();
-		return array_map(function ($provider) {
+		return array_values(array_map(function ($provider) {
 			$providerSettings = $this->getSettings($provider->getId());
 			return array_merge($provider->jsonSerialize(), ['settings' => $providerSettings]);
-		}, $providers);
+		}, $providers));
 	}
 
 	public function getProviderByIdentifier(string $identifier): ?Provider {
@@ -138,12 +149,16 @@ class ProviderService {
 		return array_merge($provider->jsonSerialize(), ['settings' => $providerSettings]);
 	}
 
+	/**
+	 * @return UserOIDCProviderSettings
+	 */
 	public function getSettings(int $providerId): array {
 		$result = [];
 		foreach ($this->getSupportedSettings() as $setting) {
 			$value = $this->getSetting($providerId, $setting);
 			$result[$setting] = $this->convertToJSON($setting, $value);
 		}
+		/** @var UserOIDCProviderSettings $result */
 		return $result;
 	}
 
@@ -168,11 +183,11 @@ class ProviderService {
 	}
 
 	public function setSetting(int $providerId, string $key, string $value): void {
-		$this->appConfig->setValueString(Application::APP_ID, $this->getSettingsKey($providerId, $key), $value);
+		$this->appConfig->setValueString(Application::APP_ID, $this->getSettingsKey($providerId, $key), $value, lazy: true);
 	}
 
 	public function getSetting(int $providerId, string $key, string $default = ''): string {
-		$value = $this->appConfig->getValueString(Application::APP_ID, $this->getSettingsKey($providerId, $key), '');
+		$value = $this->appConfig->getValueString(Application::APP_ID, $this->getSettingsKey($providerId, $key), '', lazy: true);
 		if ($value === '') {
 			return $default;
 		}
@@ -239,11 +254,14 @@ class ProviderService {
 		return null;
 	}
 
-	private function getSettingsKey(int $providerId, string $key): string {
+	public function getSettingsKey(int $providerId, string $key): string {
 		return 'provider-' . strval($providerId) . '-' . $key;
 	}
 
-	private function getSupportedSettings(): array {
+	/**
+	 * @return list<string>
+	 */
+	public function getSupportedSettings(): array {
 		return [
 			self::SETTING_MAPPING_DISPLAYNAME,
 			self::SETTING_MAPPING_EMAIL,
@@ -306,6 +324,9 @@ class ProviderService {
 			self::SETTING_TLS_VERIFY,
 			self::SETTING_USE_EXTERNAL_STORAGE,
 			self::SETTING_PROXY_LDAP,
+			self::SETTING_AZURE_GROUP_NAMES,
+			self::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING,
+			self::SETTING_ENRICH_LOGIN_ID_TOKEN_WITH_USERINFO,
 		];
 	}
 

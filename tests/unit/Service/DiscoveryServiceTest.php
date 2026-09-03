@@ -7,13 +7,14 @@
 
 declare(strict_types=1);
 
-
 use OCA\UserOIDC\Db\Provider;
 use OCA\UserOIDC\Helper\HttpClientHelper;
 use OCA\UserOIDC\Service\DiscoveryService;
 use OCA\UserOIDC\Service\ProviderService;
+use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\ICache;
 use OCP\ICacheFactory;
+use OCP\IConfig;
 use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
@@ -21,29 +22,21 @@ use Psr\Log\LoggerInterface;
 
 class DiscoveryServiceTest extends TestCase {
 
-	/**
-	 * @var MockObject|LoggerInterface
-	 */
+	/** @var MockObject|LoggerInterface */
 	private $logger;
-	/**
-	 * @var HttpClientHelper|MockObject
-	 */
+	/** @var HttpClientHelper|MockObject */
 	private $clientHelper;
-	/**
-	 * @var ProviderService|MockObject
-	 */
+	/** @var ProviderService|MockObject */
 	private $providerService;
-	/**
-	 * @var ICacheFactory|MockObject
-	 */
+	/** @var IConfig|MockObject */
+	private $config;
+	/** @var ICacheFactory|MockObject */
 	private $cacheFactory;
-	/**
-	 * @var ICache|MockObject
-	 */
+	/** @var ICache|MockObject */
 	private $cache;
-	/**
-	 * @var DiscoveryService
-	 */
+	/** @var ITimeFactory|MockObject */
+	private $timeFactory;
+	/** @var DiscoveryService */
 	private $discoveryService;
 
 	public function setUp(): void {
@@ -51,13 +44,121 @@ class DiscoveryServiceTest extends TestCase {
 		$this->logger = $this->createMock(LoggerInterface::class);
 		$this->clientHelper = $this->createMock(HttpClientHelper::class);
 		$this->providerService = $this->createMock(ProviderService::class);
+		$this->config = $this->createMock(IConfig::class);
+		$this->timeFactory = $this->createMock(ITimeFactory::class);
 		$this->cacheFactory = $this->createMock(ICacheFactory::class);
 		$this->cache = $this->createMock(ICache::class);
 		$this->cacheFactory->expects(self::once())
 			->method('createDistributed')
 			->with('junovy_user_oidc')
 			->willReturn($this->cache);
-		$this->discoveryService = new DiscoveryService($this->logger, $this->clientHelper, $this->providerService, $this->cacheFactory);
+		$this->discoveryService = new DiscoveryService($this->logger, $this->clientHelper, $this->providerService, $this->config, $this->timeFactory, $this->cacheFactory);
+	}
+
+	/**
+	 * Test that fixJwksAlg filters out keys with unsupported key types.
+	 * This prevents Firebase JWT from crashing on P-521 or OKP keys.
+	 * See https://github.com/firebase/php-jwt/issues/561
+	 */
+	public function testFixJwksAlgFiltersUnsupportedKeyTypes() {
+		// Build a fake JWT with RS256 alg and a known kid
+		$header = json_encode(['alg' => 'RS256', 'kid' => 'rsa-key-1', 'typ' => 'JWT']);
+		$payload = json_encode(['sub' => '1234']);
+		$fakeJwt = rtrim(strtr(base64_encode($header), '+/', '-_'), '=')
+			. '.' . rtrim(strtr(base64_encode($payload), '+/', '-_'), '=')
+			. '.fake-signature';
+
+		// JWKS with mixed key types: RSA (matching), EC P-521, and OKP
+		$jwks = [
+			'keys' => [
+				[
+					'kty' => 'EC',
+					'crv' => 'P-521',
+					'kid' => 'ec-p521-key',
+					'use' => 'sig',
+					'x' => 'AekpBQ8ST8a8VcfVOTNl353vSrDCLL-Jmn1TZOFz5EhU',
+					'y' => 'ADSmRA43Z1DSNx_RvcLI87cdL07l6jQyyBXMoxVg_l2T',
+				],
+				[
+					'kty' => 'RSA',
+					'kid' => 'rsa-key-1',
+					'use' => 'sig',
+					'n' => str_repeat('A', 342), // Fake 2048-bit modulus (256 bytes base64)
+					'e' => 'AQAB',
+				],
+				[
+					'kty' => 'OKP',
+					'crv' => 'Ed25519',
+					'kid' => 'okp-key',
+					'use' => 'sig',
+					'x' => 'some-value',
+				],
+			],
+		];
+
+		// Mock config to disable key strength validation (we use fake key material)
+		$this->config->method('getSystemValue')
+			->with('junovy_user_oidc', [])
+			->willReturn(['validate_jwk_strength' => false]);
+
+		$result = $this->discoveryService->fixJwksAlg($jwks, $fakeJwt);
+
+		// Only the RSA key should remain
+		Assert::assertCount(1, $result['keys']);
+		Assert::assertEquals('RSA', $result['keys'][0]['kty']);
+		Assert::assertEquals('rsa-key-1', $result['keys'][0]['kid']);
+		Assert::assertEquals('RS256', $result['keys'][0]['alg']);
+	}
+
+	/**
+	 * Test that fixJwksAlg works with EC keys when JWT uses ES256.
+	 */
+	public function testFixJwksAlgKeepsCompatibleEcKeys() {
+		$header = json_encode(['alg' => 'ES256', 'kid' => 'ec-key-1', 'typ' => 'JWT']);
+		$payload = json_encode(['sub' => '1234']);
+		$fakeJwt = rtrim(strtr(base64_encode($header), '+/', '-_'), '=')
+			. '.' . rtrim(strtr(base64_encode($payload), '+/', '-_'), '=')
+			. '.fake-signature';
+
+		$jwks = [
+			'keys' => [
+				[
+					'kty' => 'RSA',
+					'kid' => 'rsa-key-1',
+					'use' => 'sig',
+					'n' => str_repeat('A', 342),
+					'e' => 'AQAB',
+				],
+				[
+					'kty' => 'EC',
+					'crv' => 'P-256',
+					'kid' => 'ec-key-1',
+					'use' => 'sig',
+					'x' => 'AekpBQ8ST8a8VcfVOTNl353vSrDCLL-Jmn1TZOFz5EhU',
+					'y' => 'ADSmRA43Z1DSNx_RvcLI87cdL07l6jQyyBXMoxVg_l2T',
+				],
+				[
+					'kty' => 'EC',
+					'crv' => 'P-521',
+					'kid' => 'ec-p521-key',
+					'use' => 'sig',
+					'x' => 'AekpBQ8ST8a8VcfVOTNl353vSrDCLL-Jmn1TZOFz5EhU',
+					'y' => 'ADSmRA43Z1DSNx_RvcLI87cdL07l6jQyyBXMoxVg_l2T',
+				],
+			],
+		];
+
+		$this->config->method('getSystemValue')
+			->with('junovy_user_oidc', [])
+			->willReturn(['validate_jwk_strength' => false]);
+
+		$result = $this->discoveryService->fixJwksAlg($jwks, $fakeJwt);
+
+		// Both EC keys should remain (same kty), RSA filtered out
+		Assert::assertCount(2, $result['keys']);
+		Assert::assertEquals('EC', $result['keys'][0]['kty']);
+		Assert::assertEquals('ec-key-1', $result['keys'][0]['kid']);
+		Assert::assertEquals('EC', $result['keys'][1]['kty']);
 	}
 
 	public function testBuildAuthorizationUrl() {

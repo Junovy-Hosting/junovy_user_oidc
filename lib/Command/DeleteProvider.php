@@ -11,10 +11,8 @@ namespace OCA\UserOIDC\Command;
 use Exception;
 use OC\Core\Command\Base;
 use OCA\UserOIDC\Db\ProviderMapper;
-
 use OCA\UserOIDC\Service\ProviderService;
 use OCP\AppFramework\Db\DoesNotExistException;
-
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -30,7 +28,7 @@ class DeleteProvider extends Base {
 		parent::__construct();
 	}
 
-	protected function configure() {
+	protected function configure(): void {
 		$this
 			->setName('junovy_user_oidc:provider:delete')
 			->setDescription('Delete an OpenId connect provider')
@@ -39,7 +37,7 @@ class DeleteProvider extends Base {
 		parent::configure();
 	}
 
-	protected function execute(InputInterface $input, OutputInterface $output) {
+	protected function execute(InputInterface $input, OutputInterface $output): int {
 		try {
 			$identifier = $input->getArgument('identifier');
 			try {

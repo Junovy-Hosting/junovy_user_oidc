@@ -27,7 +27,7 @@ repos:
       hooks:
           - id: php-lint
             name: PHP Lint
-            entry: bash -c 'errors=$(find lib tests -name "*.php" -exec php -l {} \; 2>&1 | grep -v "No syntax errors detected"); if [ -n "$errors" ]; then echo "$errors"; exit 1; fi'
+            entry: bash -c 'errors=$(find lib tests -name "*.php" -not -path "lib/Vendor/*" -exec php -l {} \; 2>&1 | grep -v "No syntax errors detected"); if [ -n "$errors" ]; then echo "$errors"; exit 1; fi'
             language: system
             types: [php]
             pass_filenames: false

@@ -13,8 +13,10 @@ use OCA\UserOIDC\Db\Provider;
 use OCA\UserOIDC\Helper\HttpClientHelper;
 use OCA\UserOIDC\Vendor\Firebase\JWT\JWK;
 use OCA\UserOIDC\Vendor\Firebase\JWT\JWT;
+use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\ICache;
 use OCP\ICacheFactory;
+use OCP\IConfig;
 use Psr\Log\LoggerInterface;
 
 class DiscoveryService {
@@ -42,13 +44,15 @@ class DiscoveryService {
 		private LoggerInterface $logger,
 		private HttpClientHelper $clientService,
 		private ProviderService $providerService,
+		private IConfig $config,
+		private ITimeFactory $timeFactory,
 		ICacheFactory $cacheFactory,
 	) {
 		$this->cache = $cacheFactory->createDistributed('junovy_user_oidc');
 	}
 
 	public function obtainDiscovery(Provider $provider): array {
-		$cacheKey = 'discovery-' . $provider->getDiscoveryEndpoint();
+		$cacheKey = 'discovery-2-' . $provider->getDiscoveryEndpoint();
 		$cachedDiscovery = $this->cache->get($cacheKey);
 
 		// Get cache time from provider settings or use default
@@ -70,15 +74,17 @@ class DiscoveryService {
 			);
 			$options = ['verify' => $tlsVerify];
 
-			$cachedDiscovery = $this->clientService->get($url, [], $options);
+			$freshDiscovery = $this->clientService->get($url, [], $options);
+			// decode before caching so an undecodable response is never cached (upstream #1304)
+			$discovery = json_decode($freshDiscovery, true, 512, JSON_THROW_ON_ERROR);
 
 			$cacheTime = $wellKnownCachingTime === 0 ? 0 : max($wellKnownCachingTime, self::INVALIDATE_DISCOVERY_CACHE_AFTER_SECONDS);
 			if ($cacheTime > 0) {
-				$this->cache->set($cacheKey, $cachedDiscovery, $cacheTime);
+				$this->cache->set($cacheKey, $freshDiscovery, $cacheTime);
 			}
+		} else {
+			$discovery = json_decode($cachedDiscovery, true, 512, JSON_THROW_ON_ERROR);
 		}
-
-		$discovery = json_decode($cachedDiscovery, true, 512, JSON_THROW_ON_ERROR);
 
 		// Apply URL overrides from provider settings
 		$jwksUriOverride = $this->providerService->getSetting($provider->getId(), ProviderService::SETTING_OVERRIDE_JWKS_URI, '');
@@ -128,13 +134,13 @@ class DiscoveryService {
 		// Check if we should use cache
 		$shouldUseCache = $useCache && $cacheTime > 0 && $lastJwksRefresh !== '';
 		if ($minTimeBetweenJwksRequests > 0 && $lastJwksRefresh !== '') {
-			$timeSinceLastRequest = time() - (int)$lastJwksRefresh;
+			$timeSinceLastRequest = $this->timeFactory->getTime() - (int)$lastJwksRefresh;
 			if ($timeSinceLastRequest < $minTimeBetweenJwksRequests) {
 				$shouldUseCache = true;
 			}
 		}
 
-		if ($shouldUseCache && (int)$lastJwksRefresh > time() - $cacheTime) {
+		if ($shouldUseCache && (int)$lastJwksRefresh > $this->timeFactory->getTime() - $cacheTime) {
 			$rawJwks = $this->providerService->getSetting($provider->getId(), ProviderService::SETTING_JWKS_CACHE);
 			$rawJwks = json_decode($rawJwks, true);
 			$this->logger->debug('[obtainJWK] jwks cache content', ['jwks_cache' => $rawJwks]);
@@ -156,7 +162,7 @@ class DiscoveryService {
 			// cache jwks
 			$this->providerService->setSetting($provider->getId(), ProviderService::SETTING_JWKS_CACHE, $responseBody);
 			$this->logger->debug('[obtainJWK] setting cache', ['jwks_cache' => $responseBody]);
-			$this->providerService->setSetting($provider->getId(), ProviderService::SETTING_JWKS_CACHE_TIMESTAMP, strval(time()));
+			$this->providerService->setSetting($provider->getId(), ProviderService::SETTING_JWKS_CACHE_TIMESTAMP, strval($this->timeFactory->getTime()));
 		}
 
 		$fixedJwks = $this->fixJwksAlg($rawJwks, $tokenToDecode);
@@ -249,7 +255,7 @@ class DiscoveryService {
 	 * @return array The modified JWKS
 	 * @throws \RuntimeException if no matching key is found or algorithm is unsupported
 	 */
-	private function fixJwksAlg(array $jwks, string $jwt): array {
+	public function fixJwksAlg(array $jwks, string $jwt): array {
 		$jwtParts = explode('.', $jwt, 3);
 		$header = json_decode(JWT::urlsafeB64Decode($jwtParts[0]), true);
 		$kid = $header['kid'] ?? null;
@@ -265,24 +271,30 @@ class DiscoveryService {
 			throw new \RuntimeException('Invalid JWKS: missing "keys" array');
 		}
 
+		// Filter out keys with incompatible key types to prevent
+		// Firebase JWT from failing on unsupported curves (e.g. P-521, Ed448).
+		// See https://github.com/firebase/php-jwt/issues/561
+		$jwks['keys'] = array_values(array_filter($jwks['keys'], function ($key) use ($expectedKty) {
+			return ($key['kty'] ?? null) === $expectedKty;
+		}));
+		$keys = $jwks['keys'];
+
 		$matchingIndex = null;
 
 		foreach ($keys as $index => $key) {
-			$keyKty = $key['kty'] ?? null;
 			$keyUse = $key['use'] ?? null;
-
-			// Skip keys with incompatible type
-			if ($keyKty !== $expectedKty) {
-				continue;
-			}
 
 			// Skip keys not intended for signature
 			if ($keyUse !== null && $keyUse !== 'sig') {
 				continue;
 			}
 
-			// Validate key strength
-			$this->validateKeyStrength($key, $alg);
+			$oidcSystemConfig = $this->config->getSystemValue('junovy_user_oidc', []);
+			if (!isset($oidcSystemConfig['validate_jwk_strength'])
+				|| !in_array($oidcSystemConfig['validate_jwk_strength'], [false, 'false', 0, '0'], true)) {
+				// Validate key strength
+				$this->validateKeyStrength($key, $alg);
+			}
 
 			// If JWT has a kid, match strictly
 			if ($kid !== null) {

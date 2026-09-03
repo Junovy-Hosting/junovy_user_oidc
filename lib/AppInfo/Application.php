@@ -11,6 +11,7 @@ namespace OCA\UserOIDC\AppInfo;
 use Exception;
 use OC_App;
 use OCA\Files\Event\LoadAdditionalScriptsEvent;
+use OCA\UserOIDC\AlternativeLogin\AlternativeLoginProvider;
 use OCA\UserOIDC\Db\ProviderMapper;
 use OCA\UserOIDC\Event\ExchangedTokenRequestedEvent;
 use OCA\UserOIDC\Event\ExternalTokenRequestedEvent;
@@ -23,6 +24,7 @@ use OCA\UserOIDC\Listener\TokenInvalidatedListener;
 use OCA\UserOIDC\Service\ID4MeService;
 use OCA\UserOIDC\Service\KeycloakAdminService;
 use OCA\UserOIDC\Service\ProviderService;
+use OCA\UserOIDC\Service\RequestClassificationService;
 use OCA\UserOIDC\Service\SettingsService;
 use OCA\UserOIDC\Service\TokenService;
 use OCA\UserOIDC\User\Backend;
@@ -88,6 +90,13 @@ class Application extends App implements IBootstrap {
 				$clientSecret,
 			);
 		});
+		if (version_compare($config->getSystemValueString('version', '0.0.0'), '34.0.0', '>=')) {
+			/**
+			 * @psalm-suppress UndefinedInterfaceMethod
+			 * @psalm-suppress MissingDependency
+			 */
+			$context->registerAlternativeLoginProvider(AlternativeLoginProvider::class);
+		}
 	}
 
 	public function boot(IBootContext $context): void {
@@ -101,7 +110,9 @@ class Application extends App implements IBootstrap {
 
 		try {
 			$context->injectFn(\Closure::fromCallable([$this, 'registerRedirect']));
-			$context->injectFn(\Closure::fromCallable([$this, 'registerLogin']));
+			if (version_compare($this->getContainer()->get(IConfig::class)->getSystemValueString('version', '0.0.0'), '34.0.0', '<')) {
+				$context->injectFn(\Closure::fromCallable([$this, 'registerLogin']));
+			}
 		} catch (Throwable $e) {
 		}
 	}
@@ -110,8 +121,7 @@ class Application extends App implements IBootstrap {
 		$tokenService->checkLoginToken();
 	}
 
-	private function registerRedirect(IRequest $request, IURLGenerator $urlGenerator, SettingsService $settings, ProviderMapper $providerMapper, ProviderService $providerService, IConfig $config): void {
-		$providers = $this->getCachedProviders($providerMapper);
+	private function registerRedirect(IRequest $request, IURLGenerator $urlGenerator, SettingsService $settings, ProviderMapper $providerMapper, ProviderService $providerService): void {
 		$redirectUrl = $request->getParam('redirect_url');
 		$absoluteRedirectUrl = !empty($redirectUrl) ? $urlGenerator->getAbsoluteURL($redirectUrl) : $redirectUrl;
 
@@ -123,23 +133,27 @@ class Application extends App implements IBootstrap {
 			// in case any errors happen when checking for the path do not apply redirect logic as it is only needed for the login
 		}
 
-		if ($isDefaultLogin && count($providers) === 1) {
-			$provider = $providers[0];
-			// Check per-provider auto_redirect setting, then global config, then default behavior
-			$autoRedirect = $providerService->getConfigValue(
-				$provider->getId(),
-				ProviderService::SETTING_AUTO_REDIRECT,
-				false
-			);
+		// Only redirect top-level HTML navigations (upstream #1410): API/XHR requests must not be redirected
+		if ($isDefaultLogin && RequestClassificationService::isTopLevelHtmlNavigation($request)) {
+			$providers = $this->getCachedProviders($providerMapper);
+			if (count($providers) === 1) {
+				$provider = $providers[0];
+				// Check per-provider auto_redirect setting, then global config, then default behavior
+				$autoRedirect = $providerService->getConfigValue(
+					$provider->getId(),
+					ProviderService::SETTING_AUTO_REDIRECT,
+					false
+				);
 
-			// If auto_redirect is enabled for this provider, or if multiple backends are not allowed (legacy behavior)
-			if ($autoRedirect || (!$settings->getAllowMultipleUserBackEnds() && $autoRedirect !== false)) {
-				$targetUrl = $urlGenerator->linkToRoute(self::APP_ID . '.login.login', [
-					'providerId' => $provider->getId(),
-					'redirectUrl' => $absoluteRedirectUrl
-				]);
-				header('Location: ' . $targetUrl);
-				exit();
+				// If auto_redirect is enabled for this provider, or if multiple backends are not allowed (legacy behavior)
+				if ($autoRedirect || (!$settings->getAllowMultipleUserBackEnds() && $autoRedirect !== false)) {
+					$targetUrl = $urlGenerator->linkToRoute(self::APP_ID . '.login.login', [
+						'providerId' => $provider->getId(),
+						'redirectUrl' => $absoluteRedirectUrl
+					]);
+					header('Location: ' . $targetUrl);
+					exit();
+				}
 			}
 		}
 	}

@@ -8,8 +8,6 @@ declare(strict_types=1);
 
 namespace OCA\UserOIDC\Controller;
 
-use Id4me\RP\Exception\InvalidAuthorityIssuerException;
-use Id4me\RP\Exception\OpenIdDnsRecordNotFoundException;
 use OC\User\Session as OC_UserSession;
 use OCA\UserOIDC\AppInfo\Application;
 use OCA\UserOIDC\Db\Id4Me;
@@ -17,9 +15,20 @@ use OCA\UserOIDC\Db\Id4MeMapper;
 use OCA\UserOIDC\Db\UserMapper;
 use OCA\UserOIDC\Helper\HttpClientHelper;
 use OCA\UserOIDC\Service\ID4MeService;
+use OCA\UserOIDC\Vendor\Firebase\JWT\JWT;
+use OCA\UserOIDC\Vendor\Id4me\RP\Exception\InvalidAuthorityIssuerException;
+use OCA\UserOIDC\Vendor\Id4me\RP\Exception\InvalidOpenIdDomainException;
+use OCA\UserOIDC\Vendor\Id4me\RP\Exception\OpenIdDnsRecordNotFoundException;
+use OCA\UserOIDC\Vendor\Id4me\RP\Model\OpenIdConfig;
+use OCA\UserOIDC\Vendor\Id4me\RP\Service;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Db\MultipleObjectsReturnedException;
 use OCP\AppFramework\Http;
+use OCP\AppFramework\Http\Attribute\BruteForceProtection;
+use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
+use OCP\AppFramework\Http\Attribute\OpenAPI;
+use OCP\AppFramework\Http\Attribute\PublicPage;
+use OCP\AppFramework\Http\Attribute\UseSession;
 use OCP\AppFramework\Http\JSONResponse;
 use OCP\AppFramework\Http\RedirectResponse;
 use OCP\AppFramework\Http\TemplateResponse;
@@ -34,14 +43,10 @@ use OCP\IUserManager;
 use OCP\IUserSession;
 use OCP\Security\ICrypto;
 use OCP\Security\ISecureRandom;
-
-require_once __DIR__ . '/../../vendor/autoload.php';
-use Id4me\RP\Exception\InvalidOpenIdDomainException;
-use Id4me\RP\Model\OpenIdConfig;
-use Id4me\RP\Service;
 use OCP\Util;
 use Psr\Log\LoggerInterface;
 
+#[OpenAPI(scope: OpenAPI::SCOPE_IGNORE)]
 class Id4meController extends BaseOidcController {
 	private const STATE = 'oidc.state';
 	private const NONCE = 'oidc.nonce';
@@ -52,7 +57,7 @@ class Id4meController extends BaseOidcController {
 		IRequest $request,
 		private ISecureRandom $random,
 		private ISession $session,
-		IConfig $config,
+		private IConfig $config,
 		private IL10N $l10n,
 		private ITimeFactory $timeFactory,
 		private IClientService $clientService,
@@ -71,11 +76,9 @@ class Id4meController extends BaseOidcController {
 		$this->id4me = new Service($clientHelper);
 	}
 
-	/**
-	 * @PublicPage
-	 * @NoCSRFRequired
-	 * @UseSession
-	 */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	#[UseSession]
 	public function showLogin() {
 		if (!$this->id4MeService->getID4ME()) {
 			$message = $this->l10n->t('ID4Me is disabled');
@@ -94,13 +97,12 @@ class Id4meController extends BaseOidcController {
 	}
 
 	/**
-	 * @PublicPage
-	 * @UseSession
-	 * @BruteForceProtection(action=userOidcId4MeLogin)
-	 *
 	 * @param string $domain
 	 * @return RedirectResponse|TemplateResponse
 	 */
+	#[PublicPage]
+	#[UseSession]
+	#[BruteForceProtection(action: 'userOidcId4MeLogin')]
 	public function login(string $domain) {
 		if (!$this->id4MeService->getID4ME()) {
 			$message = $this->l10n->t('ID4Me is disabled');
@@ -164,17 +166,16 @@ class Id4meController extends BaseOidcController {
 	}
 
 	/**
-	 * @PublicPage
-	 * @NoCSRFRequired
-	 * @UseSession
-	 * @BruteForceProtection(action=userOidcId4MeCode)
-	 *
 	 * @param string $state
 	 * @param string $code
 	 * @param string $scope
 	 * @return JSONResponse|RedirectResponse|TemplateResponse
 	 * @throws \Exception
 	 */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	#[UseSession]
+	#[BruteForceProtection(action: 'userOidcId4MeCode')]
 	public function code(string $state = '', string $code = '', string $scope = '') {
 		if (!$this->id4MeService->getID4ME()) {
 			$message = $this->l10n->t('ID4Me is disabled');
@@ -249,7 +250,24 @@ class Id4meController extends BaseOidcController {
 		$plainHeaders = json_decode(base64_decode($header), true);
 		$plainPayload = json_decode(base64_decode($payload), true);
 
-		/** TODO: VALIATE SIGNATURE! */
+		// validate the JWT signature
+		$idTokenRaw = $data['id_token'];
+		$jwkUri = $openIdConfig->getJwksUri();
+		JWT::$leeway = 60;
+		try {
+			$jwks = $this->id4MeService->obtainJWK($jwkUri, $data['id_token'], true);
+			$idTokenPayload = JWT::decode($idTokenRaw, $jwks);
+		} catch (\Exception|\Throwable $e) {
+			$this->logger->debug('Failed to decode the JWT token, retrying with fresh JWK');
+			try {
+				$jwks = $this->id4MeService->obtainJWK($jwkUri, $idTokenRaw, false);
+				$idTokenPayload = JWT::decode($idTokenRaw, $jwks);
+			} catch (\Exception|\Throwable $e) {
+				$this->logger->debug('Failed to decode the JWT token with fresh JWK');
+				$message = $this->l10n->t('Failed to authenticate');
+				return $this->build403TemplateResponse($message, Http::STATUS_FORBIDDEN, ['reason' => 'token signature check failed']);
+			}
+		}
 
 		// Check expiration
 		if ($plainPayload['exp'] < $this->timeFactory->getTime()) {
@@ -301,8 +319,10 @@ class Id4meController extends BaseOidcController {
 		}
 
 		// Set last password confirm to the future as we don't have passwords to confirm against with SSO
-		$this->session->set('last-password-confirm', strtotime('+4 year', time()));
+		$this->session->set('last-password-confirm', $this->timeFactory->getTime() + 4 * 365 * 24 * 3600);
 
-		return new RedirectResponse(\OC_Util::getDefaultPageUrl());
+		/** Replace with ServerVersion once we depends on NC 31 */
+		$is32OrGreater = version_compare($this->config->getSystemValueString('version', '0.0.0'), '32.0.0', '>=');
+		return new RedirectResponse($is32OrGreater ? $this->urlGenerator->linkToDefaultPageUrl() : \OC_Util::getDefaultPageUrl());
 	}
 }
