@@ -20,7 +20,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php-versions: ['8.2']
+        # nextcloud/server master requires PHP >= 8.3, so master is exercised via
+        # the 8.3/8.4 includes below rather than the 8.2 base (see phpunit.yml).
+        php-versions: ['8.3']
         databases: ['sqlite', 'mysql', 'pgsql']
         server-versions: ['master']
         include:

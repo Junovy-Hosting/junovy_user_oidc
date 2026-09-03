@@ -368,6 +368,13 @@ class ProvisioningServiceTest extends TestCase {
 
 	/** @dataProvider dataProvisionUserGroups */
 	public function testProvisionUserGroups(string $gid, string $displayName, object $payload, string $group_whitelist, bool $expect_delete_local_group): void {
+		$this->markTestSkipped(
+			'Login-time group provisioning was intentionally disabled in JUN-836; it is '
+			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
+			. '::provisionUserGroups() now returns null immediately, so this test asserts '
+			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
+			. 'are still here if login-time provisioning is ever restored.'
+		);
 		$user = $this->createMock(IUser::class);
 		$group = $this->createMock(IGroup::class);
 		$local_group = $this->createMock(IGroup::class);
@@ -425,6 +432,13 @@ class ProvisioningServiceTest extends TestCase {
 	 * Test that users are not removed from protected groups (default: users, admin)
 	 */
 	public function testProvisionUserGroupsProtectedGroupsDefault(): void {
+		$this->markTestSkipped(
+			'Login-time group provisioning was intentionally disabled in JUN-836; it is '
+			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
+			. '::provisionUserGroups() now returns null immediately, so this test asserts '
+			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
+			. 'are still here if login-time provisioning is ever restored.'
+		);
 		$user = $this->createMock(IUser::class);
 		$providerId = 421;
 
@@ -498,6 +512,13 @@ class ProvisioningServiceTest extends TestCase {
 	 * Test that users are not removed from custom protected groups
 	 */
 	public function testProvisionUserGroupsProtectedGroupsCustom(): void {
+		$this->markTestSkipped(
+			'Login-time group provisioning was intentionally disabled in JUN-836; it is '
+			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
+			. '::provisionUserGroups() now returns null immediately, so this test asserts '
+			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
+			. 'are still here if login-time provisioning is ever restored.'
+		);
 		$user = $this->createMock(IUser::class);
 		$providerId = 421;
 
@@ -565,6 +586,13 @@ class ProvisioningServiceTest extends TestCase {
 	 * Test that protected groups work together with whitelist regex
 	 */
 	public function testProvisionUserGroupsProtectedGroupsWithWhitelistRegex(): void {
+		$this->markTestSkipped(
+			'Login-time group provisioning was intentionally disabled in JUN-836; it is '
+			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
+			. '::provisionUserGroups() now returns null immediately, so this test asserts '
+			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
+			. 'are still here if login-time provisioning is ever restored.'
+		);
 		$user = $this->createMock(IUser::class);
 		$providerId = 421;
 
@@ -639,6 +667,13 @@ class ProvisioningServiceTest extends TestCase {
 	 * Test that empty protected groups setting falls back to default
 	 */
 	public function testProvisionUserGroupsProtectedGroupsEmptySetting(): void {
+		$this->markTestSkipped(
+			'Login-time group provisioning was intentionally disabled in JUN-836; it is '
+			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
+			. '::provisionUserGroups() now returns null immediately, so this test asserts '
+			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
+			. 'are still here if login-time provisioning is ever restored.'
+		);
 		$user = $this->createMock(IUser::class);
 		$providerId = 421;
 
@@ -697,6 +732,13 @@ class ProvisioningServiceTest extends TestCase {
 	 * Test that protected groups with whitespace are handled correctly
 	 */
 	public function testProvisionUserGroupsProtectedGroupsWithWhitespace(): void {
+		$this->markTestSkipped(
+			'Login-time group provisioning was intentionally disabled in JUN-836; it is '
+			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
+			. '::provisionUserGroups() now returns null immediately, so this test asserts '
+			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
+			. 'are still here if login-time provisioning is ever restored.'
+		);
 		$user = $this->createMock(IUser::class);
 		$providerId = 421;
 
@@ -964,6 +1006,46 @@ class ProvisioningServiceTest extends TestCase {
 	}
 
 	/**
+	 * Login-time group provisioning was disabled in JUN-836; the
+	 * junovy-cloud-provisioner service owns it now. Assert the no-op contract the
+	 * app actually ships, so this behaviour is covered by a running test rather
+	 * than only by skipped tests describing what it used to do.
+	 */
+	public function testProvisionUserGroupsIsDisabledNoOp(): void {
+		$user = $this->createMock(IUser::class);
+		$user->method('getUID')->willReturn('testuser');
+
+		$this->groupManager->expects($this->never())->method('createGroup');
+		$this->groupManager->expects($this->never())->method('getUserGroups');
+
+		$result = $this->provisioningService->provisionUserGroups(
+			$user,
+			789,
+			(object)['groups' => ['engineering', 'marketing']]
+		);
+
+		$this->assertNull($result);
+	}
+
+	/**
+	 * As above, for team/circle provisioning.
+	 */
+	public function testProvisionUserTeamsIsDisabledNoOp(): void {
+		$user = $this->createMock(IUser::class);
+		$user->method('getUID')->willReturn('testuser');
+
+		$this->circlesService->expects($this->never())->method('isCirclesEnabled');
+
+		$result = $this->provisioningService->provisionUserTeams(
+			$user,
+			789,
+			(object)['organizations' => ['Engineering']]
+		);
+
+		$this->assertNull($result);
+	}
+
+	/**
 	 * Test provisionUserTeams when Circles is not enabled
 	 */
 	public function testProvisionUserTeamsCirclesNotEnabled(): void {
@@ -987,6 +1069,13 @@ class ProvisioningServiceTest extends TestCase {
 	 * Test provisionUserTeams creates circles and adds users
 	 */
 	public function testProvisionUserTeamsCreatesCirclesAndAddsUsers(): void {
+		$this->markTestSkipped(
+			'Login-time team/circle provisioning was intentionally disabled in JUN-836; it is '
+			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
+			. '::provisionUserTeams() now returns null immediately, so this test asserts '
+			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
+			. 'are still here if login-time provisioning is ever restored.'
+		);
 		$user = $this->createMock(IUser::class);
 		$user->method('getUID')->willReturn('testuser');
 		$providerId = 789;
@@ -1044,6 +1133,13 @@ class ProvisioningServiceTest extends TestCase {
 	 * Test provisionUserTeams removes user from circles they no longer belong to
 	 */
 	public function testProvisionUserTeamsRemovesUserFromOldCircles(): void {
+		$this->markTestSkipped(
+			'Login-time team/circle provisioning was intentionally disabled in JUN-836; it is '
+			. 'handled by the junovy-cloud-provisioner service instead. ProvisioningService'
+			. '::provisionUserTeams() now returns null immediately, so this test asserts '
+			. 'behaviour the app no longer has. Kept rather than deleted so the expectations '
+			. 'are still here if login-time provisioning is ever restored.'
+		);
 		$user = $this->createMock(IUser::class);
 		$user->method('getUID')->willReturn('testuser');
 		$providerId = 789;
