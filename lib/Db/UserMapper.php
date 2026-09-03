@@ -210,6 +210,25 @@ class UserMapper extends QBMapper {
 			// just ignore and continue
 		}
 
+		// Junovy: accounts provisioned before unique user IDs were enabled carry the raw
+		// Keycloak sub as their user_id. Resolve those instead of forking them into a
+		// second, empty account, and backfill provider_id/sub so the next login takes
+		// the (provider, sub) fast path above. Same fallback as ReconciliationService.
+		if ($userId !== $sub && strlen($sub) <= 64) {
+			try {
+				$user = $this->getUser($sub);
+				if ($user->getProviderId() === null || $user->getSub() === null) {
+					$user->setProviderId($providerId);
+					$user->setSub($storedSub);
+					$user = $this->update($user);
+					$this->userCache->set($sub, $user);
+				}
+				return $user;
+			} catch (IMapperException $e) {
+				// no legacy account either, create a new one below
+			}
+		}
+
 		$user = new User();
 		$user->setUserId($userId);
 		$user->setDisplayName('');

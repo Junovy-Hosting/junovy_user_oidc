@@ -22,6 +22,7 @@ class Version080101Date20251201121749 extends SimpleMigrationStep {
 	public function __construct(
 		private IAppConfig $appConfig,
 		private ProviderMapper $providerMapper,
+		private ProviderService $providerService,
 	) {
 	}
 
@@ -49,44 +50,11 @@ class Version080101Date20251201121749 extends SimpleMigrationStep {
 
 		// make all provider settings lazy
 		$providers = $this->providerMapper->getProviders();
-		// equivalent of $this->providerService->getSupportedSettings()
-		$supportedSettingKeys = [
-			ProviderService::SETTING_MAPPING_DISPLAYNAME,
-			ProviderService::SETTING_MAPPING_EMAIL,
-			ProviderService::SETTING_MAPPING_QUOTA,
-			ProviderService::SETTING_MAPPING_UID,
-			ProviderService::SETTING_MAPPING_GROUPS,
-			ProviderService::SETTING_MAPPING_LANGUAGE,
-			ProviderService::SETTING_MAPPING_LOCALE,
-			ProviderService::SETTING_MAPPING_ADDRESS,
-			ProviderService::SETTING_MAPPING_STREETADDRESS,
-			ProviderService::SETTING_MAPPING_POSTALCODE,
-			ProviderService::SETTING_MAPPING_LOCALITY,
-			ProviderService::SETTING_MAPPING_REGION,
-			ProviderService::SETTING_MAPPING_COUNTRY,
-			ProviderService::SETTING_MAPPING_WEBSITE,
-			ProviderService::SETTING_MAPPING_AVATAR,
-			ProviderService::SETTING_MAPPING_TWITTER,
-			ProviderService::SETTING_MAPPING_FEDIVERSE,
-			ProviderService::SETTING_MAPPING_ORGANISATION,
-			ProviderService::SETTING_MAPPING_ROLE,
-			ProviderService::SETTING_MAPPING_HEADLINE,
-			ProviderService::SETTING_MAPPING_BIOGRAPHY,
-			ProviderService::SETTING_MAPPING_PHONE,
-			ProviderService::SETTING_MAPPING_GENDER,
-			ProviderService::SETTING_MAPPING_PRONOUNS,
-			ProviderService::SETTING_MAPPING_BIRTHDATE,
-			ProviderService::SETTING_UNIQUE_UID,
-			ProviderService::SETTING_CHECK_BEARER,
-			ProviderService::SETTING_SEND_ID_TOKEN_HINT,
-			ProviderService::SETTING_BEARER_PROVISIONING,
-			ProviderService::SETTING_EXTRA_CLAIMS,
-			ProviderService::SETTING_PROVIDER_BASED_ID,
-			ProviderService::SETTING_GROUP_PROVISIONING,
-			ProviderService::SETTING_GROUP_WHITELIST_REGEX,
-			ProviderService::SETTING_RESTRICT_LOGIN_TO_GROUPS,
-			ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING,
-		];
+		// Junovy: the fork adds a lot of per-provider settings (TLS verify, URL overrides,
+		// cache times, ...) on top of upstream's list, so take the live list instead of a
+		// copy; reading a non-lazy value with lazy: true returns the default, and every
+		// setting that is not converted here would silently fall back to its default.
+		$supportedSettingKeys = $this->providerService->getSupportedSettings();
 		$supportedSettingKeys[] = ProviderService::SETTING_JWKS_CACHE;
 		$supportedSettingKeys[] = ProviderService::SETTING_JWKS_CACHE_TIMESTAMP;
 		foreach ($supportedSettingKeys as $key) {

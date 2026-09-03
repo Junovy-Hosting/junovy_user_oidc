@@ -317,9 +317,16 @@ class ProvisioningService {
 				if ($newDisplayName !== $oldDisplayName) {
 					$user->setDisplayName($newDisplayName);
 					if ($user->getBackendClassName() === Application::APP_ID) {
-						$backendUser = $this->userMapper->getOrCreate($providerId, $user->getUID());
-						$backendUser->setDisplayName($newDisplayName);
-						$this->userMapper->update($backendUser);
+						// the account already exists in our backend: update it by its uid, never
+						// getOrCreate() with the uid as the sub (that would fork a second account
+						// when unique user IDs are enabled)
+						try {
+							$backendUser = $this->userMapper->getUser($user->getUID());
+							$backendUser->setDisplayName($newDisplayName);
+							$this->userMapper->update($backendUser);
+						} catch (DoesNotExistException|MultipleObjectsReturnedException $e) {
+							$this->logger->debug('Could not update the display name of the backend user', ['exception' => $e]);
+						}
 					}
 					$this->eventDispatcher->dispatchTyped(new UserChangedEvent($user, 'displayName', $newDisplayName, $oldDisplayName));
 				}

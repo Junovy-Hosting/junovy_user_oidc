@@ -143,6 +143,41 @@ class UserMapperTest extends TestCase {
 		Assert::assertSame('the-sub', $user->getSub());
 	}
 
+	public function testGetOrCreateResolvesLegacyAccountWithRawSubAsUserId(): void {
+		// simulates an account provisioned before unique user IDs were enabled:
+		// its user_id is the raw sub, so the computed (hashed) uid does not exist
+		$legacy = new User();
+		$legacy->setUserId('the-sub');
+		$legacy->setDisplayName('Legacy User');
+
+		$this->userMapper->expects(self::once())
+			->method('getByProviderAndSub')
+			->willThrowException(new DoesNotExistException('No user'));
+
+		$this->idService->expects(self::once())->method('getId')->willReturn('hashed-uid');
+
+		$this->userMapper->expects(self::exactly(2))
+			->method('getUser')
+			->willReturnCallback(function (string $uid) use ($legacy) {
+				if ($uid === 'the-sub') {
+					return $legacy;
+				}
+				throw new DoesNotExistException('No user');
+			});
+
+		$this->userMapper->expects(self::once())
+			->method('update')
+			->willReturnCallback(function ($arg) {
+				return $arg;
+			});
+		$this->userMapper->expects(self::never())->method('insert');
+
+		$user = $this->userMapper->getOrCreate(5, 'the-sub');
+		Assert::assertSame('the-sub', $user->getUserId());
+		Assert::assertSame(5, $user->getProviderId());
+		Assert::assertSame('the-sub', $user->getSub());
+	}
+
 	public function testGetOrCreateReturnsExistingUserByProviderAndSubWithoutComputingAUid(): void {
 		$existing = new User();
 		$existing->setUserId('existing-user');

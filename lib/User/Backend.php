@@ -322,8 +322,14 @@ class Backend extends ABackend implements IPasswordConfirmationBackend, IGetDisp
 						// prevent login of users that are not in a whitelisted group (if activated)
 						$restrictLoginToGroups = $this->providerService->getSetting($provider->getId(), ProviderService::SETTING_RESTRICT_LOGIN_TO_GROUPS, '0');
 						if ($restrictLoginToGroups === '1') {
-							$tokenAttributes = $validator->getUserAttributes($provider, $headerToken);
-							$syncGroups = $this->provisioningService->getSyncGroupsOfToken($provider->getId(), $tokenAttributes);
+							try {
+								$tokenAttributes = $validator->getUserAttributes($provider, $headerToken);
+								$syncGroups = $this->provisioningService->getSyncGroupsOfToken($provider->getId(), $tokenAttributes);
+							} catch (Throwable $e) {
+								// a failure to read the groups must deny the token, not abort the request
+								$this->logger->debug('Failed to get the groups of the bearer token', ['exception' => $e]);
+								$syncGroups = null;
+							}
 
 							if ($syncGroups === null || count($syncGroups) === 0) {
 								$this->logger->debug('Prevented user from using a bearer token as user is not part of a whitelisted group');
