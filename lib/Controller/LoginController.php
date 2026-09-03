@@ -21,6 +21,7 @@ use OCA\UserOIDC\Db\SessionMapper;
 use OCA\UserOIDC\Event\TokenObtainedEvent;
 use OCA\UserOIDC\Helper\HttpClientHelper;
 use OCA\UserOIDC\Service\DiscoveryService;
+use OCA\UserOIDC\Service\ErrorPageService;
 use OCA\UserOIDC\Service\LdapService;
 use OCA\UserOIDC\Service\OIDCService;
 use OCA\UserOIDC\Service\ProviderService;
@@ -62,6 +63,7 @@ use OCP\Session\Exceptions\SessionNotAvailableException;
 use OCP\User\Events\BeforeUserLoggedInEvent;
 use OCP\User\Events\UserCreatedEvent;
 use OCP\User\Events\UserLoggedInEvent;
+use OCP\Util;
 use Psr\Log\LoggerInterface;
 use UnexpectedValueException;
 
@@ -111,8 +113,36 @@ class LoginController extends BaseOidcController {
 		private ICrypto $crypto,
 		private TokenService $tokenService,
 		private OidcService $oidcService,
+		private ErrorPageService $errorPageService,
 	) {
 		parent::__construct($request, $config, $l10n);
+	}
+
+	/**
+	 * Render one of the friendly "could not sign you in" pages (JUN-2078) and clean up the login-flow session state.
+	 *
+	 * @param string $kind one of ErrorPageService::KIND_*
+	 * @param string $reason technical reason, logged with the support reference
+	 * @param string|null $sessionKeySuffix when given, provider and redirect are read from (and then removed from) the session
+	 */
+	private function friendlyError(
+		string $kind,
+		string $reason,
+		int $statusCode,
+		array $throttleMetadata = [],
+		?bool $throttle = null,
+		?string $sessionKeySuffix = null,
+		?int $providerId = null,
+	): TemplateResponse {
+		$redirectUrl = null;
+		if ($sessionKeySuffix !== null) {
+			$providerId = $providerId ?? ((int)$this->session->get(self::LOGIN_PROVIDERID . $sessionKeySuffix) ?: null);
+			$redirectUrl = $this->session->get(self::REDIRECT_AFTER_LOGIN . $sessionKeySuffix) ?: null;
+			$this->cleanupSessionState($sessionKeySuffix);
+		}
+		Util::addStyle(Application::APP_ID, 'error-page');
+		Util::addScript(Application::APP_ID, Application::APP_ID . '-error-page');
+		return $this->errorPageService->build($kind, $reason, $statusCode, $throttleMetadata, $throttle, $providerId, $redirectUrl);
 	}
 
 	/**
@@ -178,8 +208,7 @@ class LoginController extends BaseOidcController {
 		try {
 			$provider = $this->providerMapper->getProvider($providerId);
 		} catch (DoesNotExistException|MultipleObjectsReturnedException $e) {
-			$message = $this->l10n->t('There is no such OpenID Connect provider.');
-			return $this->buildErrorTemplateResponse($message, Http::STATUS_NOT_FOUND, ['provider_not_found' => $providerId]);
+			return $this->friendlyError(ErrorPageService::KIND_TROUBLE, 'provider not found', Http::STATUS_NOT_FOUND, ['provider_not_found' => $providerId]);
 		}
 
 		// pass discovery query parameters also on to the authentication
@@ -196,8 +225,7 @@ class LoginController extends BaseOidcController {
 			$discovery = $this->discoveryService->obtainDiscovery($provider);
 		} catch (\Exception $e) {
 			$this->logger->error('Could not reach the provider at URL ' . $provider->getDiscoveryEndpoint(), ['exception' => $e]);
-			$message = $this->l10n->t('Could not reach the OpenID Connect provider.');
-			return $this->buildErrorTemplateResponse($message, Http::STATUS_NOT_FOUND, ['reason' => 'provider unreachable']);
+			return $this->friendlyError(ErrorPageService::KIND_TROUBLE, 'provider unreachable', Http::STATUS_NOT_FOUND, ['reason' => 'provider unreachable'], null, null, $providerId);
 		}
 
 		$state = $this->random->generate(32, ISecureRandom::CHAR_DIGITS . ISecureRandom::CHAR_UPPER);
@@ -376,8 +404,7 @@ class LoginController extends BaseOidcController {
 					'error_description' => $error_description,
 				], Http::STATUS_FORBIDDEN);
 			}
-			$message = $this->l10n->t('The identity provider failed to authenticate the user.');
-			return $this->build403TemplateResponse($message, Http::STATUS_BAD_REQUEST, [], false);
+			return $this->friendlyError(ErrorPageService::KIND_EXPIRED, 'identity provider returned ' . $error, Http::STATUS_BAD_REQUEST, [], false, '-' . $state);
 		}
 
 		$sessionKeySuffix = '-' . $state;
@@ -387,9 +414,7 @@ class LoginController extends BaseOidcController {
 		$sessionTimestamp = $this->session->get(self::TIMESTAMP . $sessionKeySuffix);
 		if ($currentTimestamp - $sessionTimestamp > self::LOGIN_FLOW_TIMEOUT) {
 			// the state, nonce etc... were stored too long ago, the login flow has expired
-			$this->cleanupSessionState($sessionKeySuffix);
-			$message = $this->l10n->t('The received state has expired.');
-			return $this->build403TemplateResponse($message, Http::STATUS_FORBIDDEN, [], false);
+			return $this->friendlyError(ErrorPageService::KIND_EXPIRED, 'state expired', Http::STATUS_FORBIDDEN, [], false, $sessionKeySuffix);
 		}
 
 		if ($storedState !== $state) {
@@ -399,9 +424,9 @@ class LoginController extends BaseOidcController {
 				'state_exists_in_session' => $this->session->exists(self::STATE . $sessionKeySuffix),
 			]);
 
-			$this->cleanupSessionState($sessionKeySuffix);
 			$message = $this->l10n->t('The received state does not match the expected value.');
 			if ($this->isDebugModeEnabled()) {
+				$this->cleanupSessionState($sessionKeySuffix);
 				$responseData = [
 					'error' => 'invalid_state',
 					'error_description' => $message,
@@ -412,7 +437,7 @@ class LoginController extends BaseOidcController {
 				return new JSONResponse($responseData, Http::STATUS_FORBIDDEN);
 			}
 			// we know debug mode is off, always throttle
-			return $this->build403TemplateResponse($message, Http::STATUS_FORBIDDEN, ['reason' => 'state does not match'], true);
+			return $this->friendlyError(ErrorPageService::KIND_EXPIRED, 'state does not match', Http::STATUS_FORBIDDEN, ['reason' => 'state does not match'], true, $sessionKeySuffix);
 		}
 
 		$providerId = (int)$this->session->get(self::LOGIN_PROVIDERID . $sessionKeySuffix);
@@ -421,9 +446,7 @@ class LoginController extends BaseOidcController {
 			$providerClientSecret = $this->crypto->decrypt($provider->getClientSecret());
 		} catch (\Exception $e) {
 			$this->logger->error('Failed to decrypt the client secret', ['exception' => $e]);
-			$this->cleanupSessionState($sessionKeySuffix);
-			$message = $this->l10n->t('Failed to decrypt the OIDC provider client secret');
-			return $this->buildErrorTemplateResponse($message, Http::STATUS_BAD_REQUEST, [], false);
+			return $this->friendlyError(ErrorPageService::KIND_TROUBLE, 'failed to decrypt the client secret', Http::STATUS_BAD_REQUEST, [], false, $sessionKeySuffix, $providerId);
 		}
 
 		$discovery = $this->discoveryService->obtainDiscovery($provider);
@@ -497,18 +520,15 @@ class LoginController extends BaseOidcController {
 					'error' => $responseBodyArray['error'],
 					'error_description' => $responseBodyArray['error_description'],
 				]);
-				$message = $this->l10n->t('Failed to contact the OIDC provider token endpoint') . ': ' . $responseBodyArray['error_description'];
+				$reason = 'token endpoint error: ' . (string)$responseBodyArray['error'];
 			} else {
 				$this->logger->debug('Failed to contact the OIDC provider token endpoint', ['exception' => $e]);
-				$message = $this->l10n->t('Failed to contact the OIDC provider token endpoint');
+				$reason = 'token endpoint error';
 			}
-			$this->cleanupSessionState($sessionKeySuffix);
-			return $this->build403TemplateResponse($message, Http::STATUS_FORBIDDEN, [], false);
+			return $this->friendlyError(ErrorPageService::KIND_EXPIRED, $reason, Http::STATUS_FORBIDDEN, [], false, $sessionKeySuffix, $providerId);
 		} catch (\Exception $e) {
 			$this->logger->debug('Failed to contact the OIDC provider token endpoint', ['exception' => $e]);
-			$message = $this->l10n->t('Failed to contact the OIDC provider token endpoint');
-			$this->cleanupSessionState($sessionKeySuffix);
-			return $this->build403TemplateResponse($message, Http::STATUS_FORBIDDEN, [], false);
+			return $this->friendlyError(ErrorPageService::KIND_EXPIRED, 'token endpoint unreachable', Http::STATUS_FORBIDDEN, [], false, $sessionKeySuffix, $providerId);
 		}
 
 		try {
@@ -518,16 +538,12 @@ class LoginController extends BaseOidcController {
 				'exception' => $e,
 				'body' => $body,
 			]);
-			$message = $this->l10n->t('Failed to contact the OIDC provider token endpoint');
-			$this->cleanupSessionState($sessionKeySuffix);
-			return $this->build403TemplateResponse($message, Http::STATUS_FORBIDDEN, [], false);
+			return $this->friendlyError(ErrorPageService::KIND_EXPIRED, 'invalid JSON from token endpoint', Http::STATUS_FORBIDDEN, [], false, $sessionKeySuffix, $providerId);
 		}
 
 		if (!isset($data['id_token'])) {
 			$this->logger->error('Missing id_token in IdP token response', ['keys' => array_keys($data)]);
-			$message = $this->l10n->t('Failed to contact the OIDC provider token endpoint');
-			$this->cleanupSessionState($sessionKeySuffix);
-			return $this->build403TemplateResponse($message, Http::STATUS_FORBIDDEN, [], false);
+			return $this->friendlyError(ErrorPageService::KIND_EXPIRED, 'missing id_token in token response', Http::STATUS_FORBIDDEN, [], false, $sessionKeySuffix, $providerId);
 		}
 
 		$this->logger->debug('Received code response');
@@ -570,17 +586,13 @@ class LoginController extends BaseOidcController {
 
 		if (!isset($idTokenPayload->exp) || $idTokenPayload->exp < $this->timeFactory->getTime()) {
 			$this->logger->debug('Token expired');
-			$this->cleanupSessionState($sessionKeySuffix);
-			$message = $this->l10n->t('The received token is expired.');
-			return $this->build403TemplateResponse($message, Http::STATUS_FORBIDDEN, ['reason' => 'token expired']);
+			return $this->friendlyError(ErrorPageService::KIND_EXPIRED, 'token expired', Http::STATUS_FORBIDDEN, ['reason' => 'token expired'], null, $sessionKeySuffix, $providerId);
 		}
 
 		// Verify issuer
 		if (!isset($idTokenPayload->iss) || $idTokenPayload->iss !== $discovery['issuer']) {
 			$this->logger->debug('This token is issued by the wrong issuer');
-			$this->cleanupSessionState($sessionKeySuffix);
-			$message = $this->l10n->t('The issuer does not match the one from the discovery endpoint');
-			return $this->build403TemplateResponse($message, Http::STATUS_FORBIDDEN, ['invalid_issuer' => $idTokenPayload->iss]);
+			return $this->friendlyError(ErrorPageService::KIND_TROUBLE, 'issuer mismatch', Http::STATUS_FORBIDDEN, ['invalid_issuer' => $idTokenPayload->iss], null, $sessionKeySuffix, $providerId);
 		}
 
 		// Verify audience
@@ -594,9 +606,7 @@ class LoginController extends BaseOidcController {
 				|| (is_array($tokenAudience) && !in_array($providerClientId, $tokenAudience, true))
 			) {
 				$this->logger->debug('This token is not for us');
-				$this->cleanupSessionState($sessionKeySuffix);
-				$message = $this->l10n->t('The audience does not match ours');
-				return $this->build403TemplateResponse($message, Http::STATUS_FORBIDDEN, ['invalid_audience' => $idTokenPayload->aud]);
+				return $this->friendlyError(ErrorPageService::KIND_TROUBLE, 'audience mismatch', Http::STATUS_FORBIDDEN, ['invalid_audience' => $idTokenPayload->aud], null, $sessionKeySuffix, $providerId);
 			}
 		}
 
@@ -607,17 +617,13 @@ class LoginController extends BaseOidcController {
 			// If the azp claim is present, it should be the client ID
 			if (isset($idTokenPayload->azp) && $idTokenPayload->azp !== $provider->getClientId()) {
 				$this->logger->debug('This token is not for us, authorized party (azp) is different than the client ID');
-				$this->cleanupSessionState($sessionKeySuffix);
-				$message = $this->l10n->t('The authorized party does not match ours');
-				return $this->build403TemplateResponse($message, Http::STATUS_FORBIDDEN, ['invalid_azp' => $idTokenPayload->azp]);
+				return $this->friendlyError(ErrorPageService::KIND_TROUBLE, 'authorized party mismatch', Http::STATUS_FORBIDDEN, ['invalid_azp' => $idTokenPayload->azp], null, $sessionKeySuffix, $providerId);
 			}
 		}
 
 		if (isset($idTokenPayload->nonce) && $idTokenPayload->nonce !== $this->session->get(self::NONCE . $sessionKeySuffix)) {
 			$this->logger->debug('Nonce does not match');
-			$this->cleanupSessionState($sessionKeySuffix);
-			$message = $this->l10n->t('The nonce does not match');
-			return $this->build403TemplateResponse($message, Http::STATUS_FORBIDDEN, ['reason' => 'invalid nonce']);
+			return $this->friendlyError(ErrorPageService::KIND_EXPIRED, 'nonce mismatch', Http::STATUS_FORBIDDEN, ['reason' => 'invalid nonce'], null, $sessionKeySuffix, $providerId);
 		}
 
 		// get user ID attribute
@@ -625,9 +631,7 @@ class LoginController extends BaseOidcController {
 		$userId = $this->provisioningService->getClaimValue($idTokenPayload, $uidAttribute, $providerId);
 
 		if ($userId === null) {
-			$this->cleanupSessionState($sessionKeySuffix);
-			$message = $this->l10n->t('Failed to provision the user');
-			return $this->build403TemplateResponse($message, Http::STATUS_BAD_REQUEST, ['reason' => 'failed to provision user']);
+			return $this->friendlyError(ErrorPageService::KIND_TROUBLE, 'failed to provision the user', Http::STATUS_BAD_REQUEST, ['reason' => 'failed to provision user'], null, $sessionKeySuffix, $providerId);
 		}
 
 		// prevent login of users that are not in a whitelisted group (if activated)
@@ -637,9 +641,7 @@ class LoginController extends BaseOidcController {
 
 			if ($syncGroups === null || count($syncGroups) === 0) {
 				$this->logger->debug('Prevented user from login as user is not part of a whitelisted group');
-				$this->cleanupSessionState($sessionKeySuffix);
-				$message = $this->l10n->t('You do not have permission to log in to this instance. If you think this is an error, please contact an administrator.');
-				return $this->build403TemplateResponse($message, Http::STATUS_FORBIDDEN, ['reason' => 'user not in any whitelisted group']);
+				return $this->friendlyError(ErrorPageService::KIND_NOT_SHARED, 'user not in any whitelisted group', Http::STATUS_FORBIDDEN, ['reason' => 'user not in any whitelisted group'], null, $sessionKeySuffix, $providerId);
 			}
 		}
 
@@ -663,9 +665,7 @@ class LoginController extends BaseOidcController {
 			if (!$softAutoProvisionAllowed && $existingUser !== null && $existingUser->getBackendClassName() !== Application::APP_ID) {
 				// if soft auto-provisioning is disabled,
 				// we refuse login for a user that already exists in another backend
-				$this->cleanupSessionState($sessionKeySuffix);
-				$message = $this->l10n->t('User conflict');
-				return $this->build403TemplateResponse($message, Http::STATUS_BAD_REQUEST, ['reason' => 'non-soft auto provision, user conflict'], false);
+				return $this->friendlyError(ErrorPageService::KIND_TROUBLE, 'user conflict', Http::STATUS_BAD_REQUEST, ['reason' => 'non-soft auto provision, user conflict'], false, $sessionKeySuffix, $providerId);
 			}
 			// use potential user from other backend, create it in our backend if it does not exist
 			$provisioningResult = $this->provisioningService->provisionUser($userId, $providerId, $idTokenPayload, $existingUser);
@@ -681,9 +681,7 @@ class LoginController extends BaseOidcController {
 		}
 
 		if ($user === null) {
-			$this->cleanupSessionState($sessionKeySuffix);
-			$message = $this->l10n->t('Failed to provision the user');
-			return $this->build403TemplateResponse($message, Http::STATUS_BAD_REQUEST, ['reason' => 'failed to provision user']);
+			return $this->friendlyError(ErrorPageService::KIND_TROUBLE, 'failed to provision the user', Http::STATUS_BAD_REQUEST, ['reason' => 'failed to provision user'], null, $sessionKeySuffix, $providerId);
 		}
 
 		// Provision Teams/Circles from Keycloak Organizations if enabled
@@ -824,8 +822,7 @@ class LoginController extends BaseOidcController {
 				try {
 					$provider = $this->providerMapper->getProvider((int)$providerId);
 				} catch (DoesNotExistException|MultipleObjectsReturnedException $e) {
-					$message = $this->l10n->t('There is no such OpenID Connect provider.');
-					return $this->buildErrorTemplateResponse($message, Http::STATUS_NOT_FOUND, ['provider_id' => $providerId]);
+					return $this->friendlyError(ErrorPageService::KIND_TROUBLE, 'provider not found at logout', Http::STATUS_NOT_FOUND, ['provider_id' => $providerId]);
 				}
 
 				// Check if a custom end_session_endpoint is set in the provider otherwise use the default one provided by the openid-configuration
