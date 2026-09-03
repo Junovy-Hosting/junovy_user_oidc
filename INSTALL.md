@@ -41,7 +41,7 @@
 
 ### Prerequisites
 
--   Nextcloud server (version 29-33)
+-   Nextcloud server (version 29-34)
 -   PHP with required extensions (curl, json, openssl, etc.)
 -   Access to the Nextcloud installation directory
 -   Command line access (for occ commands)
