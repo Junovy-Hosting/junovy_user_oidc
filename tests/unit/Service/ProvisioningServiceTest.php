@@ -519,15 +519,13 @@ class ProvisioningServiceTest extends TestCase {
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', $group_whitelist],
-					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
-					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', $group_whitelist],
+				[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+				[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+				[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
+			]);
 
 		$this->groupManager
 			->method('getUserGroupIds')
@@ -595,15 +593,13 @@ class ProvisioningServiceTest extends TestCase {
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
-					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
-					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
+				[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+				[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+				[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
+			]);
 
 		$this->groupManager
 			->method('getUserGroupIds')
@@ -669,15 +665,13 @@ class ProvisioningServiceTest extends TestCase {
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
-					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
-					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'custom_protected,staff'],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
+				[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+				[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+				[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'custom_protected,staff'],
+			]);
 
 		$this->groupManager
 			->method('getUserGroupIds')
@@ -744,15 +738,13 @@ class ProvisioningServiceTest extends TestCase {
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', '/^blue/'],
-					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
-					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', '/^blue/'],
+				[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+				[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+				[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
+			]);
 
 		$this->groupManager
 			->method('getUserGroupIds')
@@ -817,15 +809,13 @@ class ProvisioningServiceTest extends TestCase {
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
-					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
-					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', ''],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
+				[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+				[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+				[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', ''],
+			]);
 
 		$this->groupManager
 			->method('getUserGroupIds')
@@ -880,15 +870,13 @@ class ProvisioningServiceTest extends TestCase {
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
-					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
-					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', ' users , staff , admin '],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
+				[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+				[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+				[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', ' users , staff , admin '],
+			]);
 
 		$this->groupManager
 			->method('getUserGroupIds')
@@ -943,15 +931,13 @@ class ProvisioningServiceTest extends TestCase {
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
-					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
-					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+				[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
+				[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+				[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
+			]);
 
 		// Mock the event dispatcher to return the groups as-is
 		$this->eventDispatcher
@@ -996,15 +982,13 @@ class ProvisioningServiceTest extends TestCase {
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
-					[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
-					[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-					[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups', 'groups'],
+				[$providerId, ProviderService::SETTING_AZURE_GROUP_NAMES, '0', '0'],
+				[$providerId, ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+				[$providerId, ProviderService::SETTING_PROTECTED_GROUPS, 'users,admin', 'users,admin'],
+			]);
 
 		$this->eventDispatcher
 			->method('dispatchTyped')
@@ -1038,13 +1022,11 @@ class ProvisioningServiceTest extends TestCase {
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_MAPPING_ORGANIZATIONS, 'organizations', 'organizations'],
-					[$providerId, ProviderService::SETTING_TEAMS_WHITELIST_REGEX, '', ''],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_MAPPING_ORGANIZATIONS, 'organizations', 'organizations'],
+				[$providerId, ProviderService::SETTING_TEAMS_WHITELIST_REGEX, '', ''],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+			]);
 
 		$this->eventDispatcher
 			->method('dispatchTyped')
@@ -1079,13 +1061,11 @@ class ProvisioningServiceTest extends TestCase {
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_MAPPING_ORGANIZATIONS, 'organizations', 'organizations'],
-					[$providerId, ProviderService::SETTING_TEAMS_WHITELIST_REGEX, '', ''],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_MAPPING_ORGANIZATIONS, 'organizations', 'organizations'],
+				[$providerId, ProviderService::SETTING_TEAMS_WHITELIST_REGEX, '', ''],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+			]);
 
 		$this->eventDispatcher
 			->method('dispatchTyped')
@@ -1116,13 +1096,11 @@ class ProvisioningServiceTest extends TestCase {
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_MAPPING_ORGANIZATIONS, 'organizations', 'organizations'],
-					[$providerId, ProviderService::SETTING_TEAMS_WHITELIST_REGEX, '', '/^eng-/'],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_MAPPING_ORGANIZATIONS, 'organizations', 'organizations'],
+				[$providerId, ProviderService::SETTING_TEAMS_WHITELIST_REGEX, '', '/^eng-/'],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+			]);
 
 		$this->eventDispatcher
 			->method('dispatchTyped')
@@ -1218,13 +1196,11 @@ class ProvisioningServiceTest extends TestCase {
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_MAPPING_ORGANIZATIONS, 'organizations', 'organizations'],
-					[$providerId, ProviderService::SETTING_TEAMS_WHITELIST_REGEX, '', ''],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_MAPPING_ORGANIZATIONS, 'organizations', 'organizations'],
+				[$providerId, ProviderService::SETTING_TEAMS_WHITELIST_REGEX, '', ''],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+			]);
 
 		$this->eventDispatcher
 			->method('dispatchTyped')
@@ -1276,13 +1252,11 @@ class ProvisioningServiceTest extends TestCase {
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
-				[
-					[$providerId, ProviderService::SETTING_MAPPING_ORGANIZATIONS, 'organizations', 'organizations'],
-					[$providerId, ProviderService::SETTING_TEAMS_WHITELIST_REGEX, '', ''],
-					[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
-				]
-			));
+			->willReturnMap([
+				[$providerId, ProviderService::SETTING_MAPPING_ORGANIZATIONS, 'organizations', 'organizations'],
+				[$providerId, ProviderService::SETTING_TEAMS_WHITELIST_REGEX, '', ''],
+				[$providerId, ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '0', '0'],
+			]);
 
 		$this->eventDispatcher
 			->method('dispatchTyped')

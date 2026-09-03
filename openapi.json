@@ -1,7 +1,7 @@
 {
     "openapi": "3.0.3",
     "info": {
-        "title": "user_oidc",
+        "title": "junovy_user_oidc",
         "version": "0.0.1",
         "description": "Use an OpenID Connect backend to login to your Nextcloud",
         "license": {
@@ -124,8 +124,31 @@
                     "groupProvisioning",
                     "groupWhitelistRegex",
                     "restrictLoginToGroups",
+                    "protectedGroups",
                     "nestedAndFallbackClaims",
-                    "enrichLoginIdTokenWithUserinfo"
+                    "enrichLoginIdTokenWithUserinfo",
+                    "teamsProvisioning",
+                    "mappingOrganizations",
+                    "teamsWhitelistRegex",
+                    "overrideJwksUri",
+                    "overrideTokenEndpoint",
+                    "overrideUserinfoEndpoint",
+                    "autoRedirect",
+                    "hidePasswordForm",
+                    "redirectFallback",
+                    "disableRegistration",
+                    "webdavEnabled",
+                    "passwordAuthentication",
+                    "useIdToken",
+                    "publicKeyCachingTime",
+                    "minTimeBetweenJwksRequests",
+                    "wellKnownCachingTime",
+                    "updateAvatar",
+                    "buttonText",
+                    "altLoginPage",
+                    "tlsVerify",
+                    "useExternalStorage",
+                    "proxyLdap"
                 ],
                 "properties": {
                     "mappingDisplayName": {
@@ -230,10 +253,79 @@
                     "restrictLoginToGroups": {
                         "type": "boolean"
                     },
+                    "protectedGroups": {
+                        "type": "string"
+                    },
                     "nestedAndFallbackClaims": {
                         "type": "boolean"
                     },
                     "enrichLoginIdTokenWithUserinfo": {
+                        "type": "boolean"
+                    },
+                    "teamsProvisioning": {
+                        "type": "boolean"
+                    },
+                    "mappingOrganizations": {
+                        "type": "string"
+                    },
+                    "teamsWhitelistRegex": {
+                        "type": "string"
+                    },
+                    "overrideJwksUri": {
+                        "type": "string"
+                    },
+                    "overrideTokenEndpoint": {
+                        "type": "string"
+                    },
+                    "overrideUserinfoEndpoint": {
+                        "type": "string"
+                    },
+                    "autoRedirect": {
+                        "type": "boolean"
+                    },
+                    "hidePasswordForm": {
+                        "type": "boolean"
+                    },
+                    "redirectFallback": {
+                        "type": "boolean"
+                    },
+                    "disableRegistration": {
+                        "type": "boolean"
+                    },
+                    "webdavEnabled": {
+                        "type": "boolean"
+                    },
+                    "passwordAuthentication": {
+                        "type": "boolean"
+                    },
+                    "useIdToken": {
+                        "type": "boolean"
+                    },
+                    "publicKeyCachingTime": {
+                        "type": "string"
+                    },
+                    "minTimeBetweenJwksRequests": {
+                        "type": "string"
+                    },
+                    "wellKnownCachingTime": {
+                        "type": "string"
+                    },
+                    "updateAvatar": {
+                        "type": "boolean"
+                    },
+                    "buttonText": {
+                        "type": "string"
+                    },
+                    "altLoginPage": {
+                        "type": "string"
+                    },
+                    "tlsVerify": {
+                        "type": "boolean"
+                    },
+                    "useExternalStorage": {
+                        "type": "boolean"
+                    },
+                    "proxyLdap": {
                         "type": "boolean"
                     }
                 }
@@ -241,7 +333,7 @@
         }
     },
     "paths": {
-        "/ocs/v2.php/apps/user_oidc/api/{apiVersion}/provider": {
+        "/ocs/v2.php/apps/junovy_user_oidc/api/{apiVersion}/provider": {
             "get": {
                 "operationId": "settings-get-providers",
                 "summary": "Get all registered providers with their settings",
@@ -637,7 +729,7 @@
                 }
             }
         },
-        "/ocs/v2.php/apps/user_oidc/api/{apiVersion}/provider/{providerId}": {
+        "/ocs/v2.php/apps/junovy_user_oidc/api/{apiVersion}/provider/{providerId}": {
             "put": {
                 "operationId": "settings-update-provider",
                 "summary": "Update an existing provider",
@@ -1091,7 +1183,7 @@
                 }
             }
         },
-        "/ocs/v2.php/apps/user_oidc/api/{apiVersion}/provider/id4me": {
+        "/ocs/v2.php/apps/junovy_user_oidc/api/{apiVersion}/provider/id4me": {
             "post": {
                 "operationId": "settings-seti-d4me",
                 "summary": "Set the ID4me state",
@@ -1248,7 +1340,7 @@
                 }
             }
         },
-        "/ocs/v2.php/apps/user_oidc/api/{apiVersion}/supported-settings": {
+        "/ocs/v2.php/apps/junovy_user_oidc/api/{apiVersion}/supported-settings": {
             "get": {
                 "operationId": "settings-get-supported-settings",
                 "summary": "Get the list of supported provider settings",
@@ -1381,7 +1473,7 @@
                 }
             }
         },
-        "/ocs/v2.php/apps/user_oidc/api/{apiVersion}/admin-config": {
+        "/ocs/v2.php/apps/junovy_user_oidc/api/{apiVersion}/admin-config": {
             "post": {
                 "operationId": "settings-set-admin-config",
                 "summary": "Set admin configuration values",
@@ -1533,7 +1625,254 @@
                 }
             }
         },
-        "/ocs/v2.php/apps/user_oidc/api/{apiVersion}/user": {
+        "/ocs/v2.php/apps/junovy_user_oidc/api/{apiVersion}/resync-groups": {
+            "post": {
+                "operationId": "settings-resync-groups",
+                "summary": "Resync groups for OIDC users by removing them from hashed groups. This fixes the issue where groups were incorrectly hashed with SHA256. Users will get proper groups on their next login.",
+                "description": "This endpoint requires admin access\nThis endpoint requires password confirmation",
+                "tags": [
+                    "user_oidc_settings"
+                ],
+                "security": [
+                    {
+                        "bearer_auth": []
+                    },
+                    {
+                        "basic_auth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "providerId": {
+                                        "type": "integer",
+                                        "format": "int64",
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Optional provider ID to resync only for a specific provider"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "name": "apiVersion",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "v1"
+                            ],
+                            "default": "v1"
+                        }
+                    },
+                    {
+                        "name": "OCS-APIRequest",
+                        "in": "header",
+                        "description": "Required to be true for the API request to pass",
+                        "required": true,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Resync statistics",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "success",
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "success": {
+                                                            "type": "boolean"
+                                                        },
+                                                        "message": {
+                                                            "type": "string"
+                                                        },
+                                                        "stats": {
+                                                            "type": "object",
+                                                            "required": [
+                                                                "hashed_groups_found",
+                                                                "users_removed",
+                                                                "groups_cleaned"
+                                                            ],
+                                                            "properties": {
+                                                                "hashed_groups_found": {
+                                                                    "type": "integer",
+                                                                    "format": "int64"
+                                                                },
+                                                                "users_removed": {
+                                                                    "type": "integer",
+                                                                    "format": "int64"
+                                                                },
+                                                                "groups_cleaned": {
+                                                                    "type": "integer",
+                                                                    "format": "int64"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Resync failed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "success",
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "success": {
+                                                            "type": "boolean"
+                                                        },
+                                                        "message": {
+                                                            "type": "string"
+                                                        },
+                                                        "stats": {
+                                                            "type": "object",
+                                                            "required": [
+                                                                "hashed_groups_found",
+                                                                "users_removed",
+                                                                "groups_cleaned"
+                                                            ],
+                                                            "properties": {
+                                                                "hashed_groups_found": {
+                                                                    "type": "integer",
+                                                                    "format": "int64"
+                                                                },
+                                                                "users_removed": {
+                                                                    "type": "integer",
+                                                                    "format": "int64"
+                                                                },
+                                                                "groups_cleaned": {
+                                                                    "type": "integer",
+                                                                    "format": "int64"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Current user is not logged in",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Logged in account must be an admin",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ocs/v2.php/apps/junovy_user_oidc/api/{apiVersion}/user": {
             "post": {
                 "operationId": "ocs_api-create-user",
                 "summary": "Create or update a user for a backend provider.",
@@ -1715,7 +2054,7 @@
                 }
             }
         },
-        "/ocs/v2.php/apps/user_oidc/api/{apiVersion}/user/{userId}": {
+        "/ocs/v2.php/apps/junovy_user_oidc/api/{apiVersion}/user/{userId}": {
             "delete": {
                 "operationId": "ocs_api-delete-user",
                 "summary": "Delete a user created by the provider backend.",

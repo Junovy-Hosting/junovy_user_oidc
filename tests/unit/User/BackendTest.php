@@ -162,10 +162,10 @@ class BackendTest extends \Test\TestCase {
 	 * Wires up a request carrying a bearer token that the self encoded validator
 	 * accepts for a provider with bearer checking turned on.
 	 *
-	 * @param array<string, mixed> $systemConfig the 'user_oidc' system config
+	 * @param array<string, mixed> $systemConfig the 'junovy_user_oidc' system config
 	 */
 	private function givenAValidBearerToken(array $systemConfig = []): void {
-		$this->config->method('getSystemValue')->with('user_oidc', [])->willReturn($systemConfig);
+		$this->config->method('getSystemValue')->with('junovy_user_oidc', [])->willReturn($systemConfig);
 		$this->request->method('getHeader')
 			->with(Application::OIDC_API_REQ_HEADER)
 			->willReturn('Bearer a-valid-token');

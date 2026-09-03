@@ -15,3 +15,4 @@ composer.phar
 certs/*
 local*
 .envrc
+.serena/
