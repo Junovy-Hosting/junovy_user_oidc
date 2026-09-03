@@ -129,6 +129,20 @@ installation with:
 ]
 ```
 
+## `junovy_user_oidc.support_url`
+
+The pages shown when a login cannot be completed (JUN-2078) end with a "Still stuck? Contact support"
+link when a support URL is configured. The line is hidden when it is not set.
+
+```php
+'junovy_user_oidc' => [
+  'support_url' => 'https://junovy.com/support'
+]
+```
+
+Every such page also shows a short reference (`For support: ref a1b2c3 · <date>`); the same reference is
+logged at warning level together with the technical reason, so support can find the cause from the ref.
+
 ## `junovy_user_oidc.validate_jwk_strength`
 
 By default, junovy_user_oidc validates the strength of the JWK keys received from the discovery endpoint.

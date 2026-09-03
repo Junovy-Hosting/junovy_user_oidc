@@ -8,6 +8,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.6.0 – 2026-09-03 (Junovy fork)
+
+### Changed
+
+- Friendlier pages when a login cannot be completed (JUN-2078). The generic "Access forbidden" page with
+  the raw reason ("The received state has expired.") is replaced by three translatable pages rendered in
+  the guest layout: **Welcome back** (expired/mismatched state, nonce or token, IdP error, token-endpoint
+  failure) which auto-continues to a fresh login after 5 s with a pause-on-hover/focus countdown and a
+  real "Stay here" button; **This hasn't been shared with you yet** (login restricted to groups) with
+  "Go to my files" / "Try again"; and **Something went wrong on our side** (provider misconfiguration,
+  provisioning failure, user conflict). Technical detail is logged with a short support reference that
+  is also shown in the page footer. New optional `junovy_user_oidc.support_url` config.php value shows a
+  "Still stuck? Contact support" link.
+
 ## 1.5.0 – 2026-09-03 (Junovy fork)
 
 Catch-up with upstream `nextcloud/user_oidc`: the fork now sits on **8.11.0** (it was on 8.1.0).

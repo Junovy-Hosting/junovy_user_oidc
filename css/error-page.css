@@ -1,0 +1,207 @@
+/**
+ * SPDX-FileCopyrightText: 2026 Junovy Hosting
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ */
+
+/* The logo moves into the card, so the guest header is not needed on this page */
+#body-login #header {
+	display: none;
+}
+
+.junovy-oidc-error {
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	width: min(560px, calc(100vw - 32px));
+	margin: 0 auto;
+	padding: 44px 48px 30px;
+	color: #fff;
+	text-align: center;
+	background-color: rgba(3, 7, 23, 0.55);
+	-webkit-backdrop-filter: blur(25px);
+	backdrop-filter: blur(25px);
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 16px;
+	box-shadow: 0 8px 40px rgba(97, 63, 117, 0.35);
+}
+
+.junovy-oidc-error__logo {
+	width: 180px;
+	height: 40px;
+	background-image: var(--image-logo);
+	background-repeat: no-repeat;
+	background-position: center;
+	background-size: contain;
+}
+
+.junovy-oidc-error__icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 64px;
+	height: 64px;
+	margin-top: 24px;
+	border-radius: 32px;
+	color: #e8b4bc;
+	background-color: rgba(232, 180, 188, 0.14);
+}
+
+.junovy-oidc-error__icon svg {
+	width: 36px;
+	height: 36px;
+	fill: currentColor;
+}
+
+.junovy-oidc-error__title {
+	margin: 16px 0 0;
+	font-family: 'Darker Grotesque', var(--font-face);
+	font-size: 40px;
+	font-weight: 700;
+	line-height: 1.05;
+	color: #fff;
+}
+
+.junovy-oidc-error__body {
+	max-width: 420px;
+	margin: 12px 0 0;
+	font-size: 16px;
+	line-height: 1.55;
+	color: rgba(255, 255, 255, 0.78);
+}
+
+#body-login .junovy-oidc-error__primary {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 280px;
+	max-width: 100%;
+	min-height: 48px;
+	margin-top: 30px;
+	padding: 10px 24px;
+	font-size: 16px;
+	font-weight: 700;
+	line-height: 1.4;
+	color: #fff;
+	background-color: #7d5a91;
+	border-radius: 10px;
+	text-decoration: none;
+}
+
+#body-login .junovy-oidc-error__primary:hover,
+#body-login .junovy-oidc-error__primary:focus {
+	color: #fff;
+	background-color: #8b5fa3;
+	text-decoration: none;
+}
+
+#body-login .junovy-oidc-error__secondary {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 44px;
+	margin-top: 6px;
+	padding: 10px 12px;
+	font-size: 14px;
+	font-weight: 600;
+	color: #fff;
+	text-decoration: none;
+}
+
+.junovy-oidc-error__countdown {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	margin-top: 22px;
+}
+
+.junovy-oidc-error__countdown[hidden] {
+	display: none;
+}
+
+.junovy-oidc-error__progress {
+	width: 280px;
+	max-width: 100%;
+	height: 3px;
+	overflow: hidden;
+	border-radius: 2px;
+	background-color: rgba(255, 255, 255, 0.18);
+}
+
+.junovy-oidc-error__progress-bar {
+	width: 0;
+	height: 3px;
+	border-radius: 2px;
+	background-color: #e8b4bc;
+	transition: width 1s linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.junovy-oidc-error__progress-bar {
+		transition: none;
+	}
+}
+
+.junovy-oidc-error__countdown-text {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin: 0;
+	font-size: 13px;
+	color: rgba(255, 255, 255, 0.8);
+}
+
+#body-login .junovy-oidc-error__stay {
+	display: inline-flex;
+	align-items: center;
+	min-height: 44px;
+	margin: -10px 0;
+	padding: 0 8px;
+	font-family: inherit;
+	font-size: 13px;
+	font-weight: 600;
+	color: #fff;
+	background: transparent;
+	border: none;
+	border-radius: 6px;
+	cursor: pointer;
+}
+
+.junovy-oidc-error__support {
+	margin: 26px 0 0;
+	font-size: 13px;
+	color: rgba(255, 255, 255, 0.75);
+}
+
+#body-login .junovy-oidc-error__support a {
+	color: #e8b4bc;
+	font-weight: 600;
+}
+
+.junovy-oidc-error__meta {
+	box-sizing: border-box;
+	width: 100%;
+	margin: 22px 0 0;
+	padding-top: 14px;
+	font-size: 12px;
+	line-height: 1.5;
+	color: rgba(255, 255, 255, 0.45);
+	border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+@media (max-width: 600px) {
+	.junovy-oidc-error {
+		padding: 36px 24px 28px;
+	}
+
+	.junovy-oidc-error__title {
+		font-size: 36px;
+	}
+
+	#body-login .junovy-oidc-error__primary {
+		width: 100%;
+	}
+}

@@ -15,6 +15,7 @@ webpackConfig.devtool = isDev ? 'cheap-source-map' : 'source-map'
 webpackConfig.entry = {
 	'admin-settings': path.join(__dirname, 'src', 'main-settings.js'),
 	timezone: path.join(__dirname, 'src', 'timezone.js'),
+	'error-page': path.join(__dirname, 'src', 'error-page.js'),
 }
 
 webpackConfig.plugins.push(

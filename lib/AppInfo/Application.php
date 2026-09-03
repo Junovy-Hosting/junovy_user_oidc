@@ -76,7 +76,7 @@ class Application extends App implements IBootstrap {
 		}
 
 		// Register KeycloakAdminService with env-based configuration
-		$this->getContainer()->registerService(KeycloakAdminService::class, function ($c) {
+		$context->registerService(KeycloakAdminService::class, function ($c) {
 			$keycloakBaseUrl = getenv('KEYCLOAK_PROVISIONING_BASE_URL')
 				?: 'http://keycloak.keycloak.svc.cluster.local/realms/dds';
 			$clientId = getenv('KEYCLOAK_PROVISIONING_CLIENT_ID') ?: '';
