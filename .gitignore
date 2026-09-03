@@ -3,7 +3,7 @@
 .idea
 *.iml
 /js
-/vendor/
+vendor/
 /build/
 node_modules/
 /.php_cs.cache
@@ -15,3 +15,4 @@ composer.phar
 certs/*
 local*
 .envrc
+.serena/

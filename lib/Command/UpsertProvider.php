@@ -155,6 +155,10 @@ class UpsertProvider extends Base {
 			'shortcut' => null, 'mode' => InputOption::VALUE_REQUIRED, 'setting_key' => ProviderService::SETTING_MAPPING_GROUPS,
 			'description' => 'Attribute mapping of the groups',
 		],
+		'entraid-group-names' => [
+			'shortcut' => null, 'mode' => InputOption::VALUE_REQUIRED, 'setting_key' => ProviderService::SETTING_AZURE_GROUP_NAMES,
+			'description' => 'Turn on usage of mapping guid to names with Microsoft Graph. 1 to enable, 0 to disable (default)',
+		],
 		'resolve-nested-claims' => [
 			'shortcut' => null,
 			'mode' => InputOption::VALUE_REQUIRED,
@@ -171,13 +175,15 @@ class UpsertProvider extends Base {
 		parent::__construct();
 	}
 
-	protected function configure() {
+	protected function configure(): void {
 		$this
 			->setName('junovy_user_oidc:provider')
 			->setDescription('Create, show or update a OpenId connect provider config given the identifier of a provider')
 			->addArgument('identifier', InputArgument::OPTIONAL, 'Administrative identifier name of the provider in the setup')
 			->addOption('clientid', 'c', InputOption::VALUE_REQUIRED, 'OpenID client identifier')
 			->addOption('clientsecret', 's', InputOption::VALUE_REQUIRED, 'OpenID client secret')
+			->addOption('clientsecret-file', null, InputOption::VALUE_REQUIRED, 'File that contains the OpenID client secret')
+			->addOption('clientsecret-env', null, InputOption::VALUE_REQUIRED, 'Environment variable that contains the OpenID client secret')
 			->addOption('discoveryuri', 'd', InputOption::VALUE_REQUIRED, 'OpenID discovery endpoint uri')
 			->addOption('endsessionendpointuri', 'e', InputOption::VALUE_REQUIRED, 'OpenID end session endpoint uri')
 			->addOption('postlogouturi', 'p', InputOption::VALUE_REQUIRED, 'Post logout URI')
@@ -188,14 +194,19 @@ class UpsertProvider extends Base {
 		parent::configure();
 	}
 
-	protected function execute(InputInterface $input, OutputInterface $output) {
+	protected function execute(InputInterface $input, OutputInterface $output): int {
 		$outputFormat = $input->getOption('output') ?? 'table';
 
 		$identifier = $input->getArgument('identifier');
-		$clientid = $input->getOption('clientid');
-		$clientsecret = $input->getOption('clientsecret');
-		if ($clientsecret !== null) {
-			$clientsecret = $this->crypto->encrypt($clientsecret);
+		$clientId = $input->getOption('clientid');
+		$clientSecret = $input->getOption('clientsecret');
+		$clientSecretFile = $input->getOption('clientsecret-file');
+		$clientSecretEnv = $input->getOption('clientsecret-env');
+		try {
+			$clientSecret = $this->getClientSecretInput($clientSecret, $clientSecretFile, $clientSecretEnv, $output);
+		} catch (\Exception $e) {
+			$output->writeln($e->getMessage());
+			return 1;
 		}
 		$discoveryuri = $input->getOption('discoveryuri');
 		$endsessionendpointuri = $input->getOption('endsessionendpointuri');
@@ -218,7 +229,7 @@ class UpsertProvider extends Base {
 			try {
 				$provider = $this->providerMapper->findProviderByIdentifier($identifier);
 			} catch (DoesNotExistException $e) {
-				$output->writeln('Provider not found');
+				$output->writeln('<error>Provider not found</error>');
 				return -1;
 			}
 			$provider = $this->providerService->getProviderWithSettings($provider->getId());
@@ -250,7 +261,7 @@ class UpsertProvider extends Base {
 		}
 		try {
 			$provider = $this->providerMapper->createOrUpdateProvider(
-				$identifier, $clientid, $clientsecret, $discoveryuri, $scope, $endsessionendpointuri, $postLogoutUri
+				$identifier, $clientId, $clientSecret, $discoveryuri, $scope, $endsessionendpointuri, $postLogoutUri
 			);
 			// invalidate JWKS cache (even if it was just created)
 			$this->providerService->setSetting($provider->getId(), ProviderService::SETTING_JWKS_CACHE, '');
@@ -272,7 +283,7 @@ class UpsertProvider extends Base {
 		return 0;
 	}
 
-	private function listProviders(InputInterface $input, OutputInterface $output) {
+	private function listProviders(InputInterface $input, OutputInterface $output): int {
 		$outputFormat = $input->getOption('output') ?? 'table';
 		$providers = $this->providerMapper->getProviders();
 
@@ -287,7 +298,7 @@ class UpsertProvider extends Base {
 		}
 
 		if (count($providers) === 0) {
-			$output->writeln('No providers configured');
+			$output->writeln('<error>No providers configured</error>');
 			return 0;
 		}
 
@@ -305,5 +316,41 @@ class UpsertProvider extends Base {
 		$table->setRows($providers);
 		$table->render();
 		return 0;
+	}
+
+	private function getClientSecretInput(
+		?string $clientSecret, ?string $clientSecretFile, ?string $clientSecretEnv, OutputInterface $output,
+	): ?string {
+		if (
+			($clientSecret !== null && $clientSecretFile !== null)
+			|| ($clientSecret !== null && $clientSecretEnv !== null)
+			|| ($clientSecretFile !== null && $clientSecretEnv !== null)
+		) {
+			throw new \Exception('<comment>Only one of "--clientsecret", "--clientsecret-file" or "--clientsecret-env" can be used.</comment>');
+		}
+		if ($clientSecret !== null) {
+			return $this->crypto->encrypt($clientSecret);
+		}
+		if ($clientSecretFile !== null) {
+			$clientSecret = file_get_contents($clientSecretFile);
+			if (is_string($clientSecret) && $clientSecret !== '') {
+				$output->writeln('<info>Client secret loaded from file "' . $clientSecretFile . '"</info>');
+				$clientSecret = trim($clientSecret);
+				return $this->crypto->encrypt($clientSecret);
+			} else {
+				throw new \Exception('<error>Client secret file "' . $clientSecretFile . '" could not be read or is empty</error>');
+			}
+		}
+		if ($clientSecretEnv !== null) {
+			$clientSecret = getenv($clientSecretEnv);
+			if (is_string($clientSecret) && $clientSecret !== '') {
+				$output->writeln('<info>Client secret loaded from environment variable "' . $clientSecretEnv . '"</info>');
+				$clientSecret = trim($clientSecret);
+				return $this->crypto->encrypt($clientSecret);
+			} else {
+				throw new \Exception('<error>Client secret environment variable "' . $clientSecretEnv . '" could not be read or is empty</error>');
+			}
+		}
+		return null;
 	}
 }

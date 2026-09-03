@@ -9,6 +9,7 @@ use OCA\UserOIDC\Db\Provider;
 use OCA\UserOIDC\Db\ProviderMapper;
 use OCA\UserOIDC\Service\LocalIdService;
 use OCA\UserOIDC\Service\ProviderService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 
@@ -32,7 +33,7 @@ class IdServiceTest extends TestCase {
 		$this->idService = new LocalIdService($this->providerService, $this->providerMapper);
 	}
 
-	public function dataGetId() {
+	public static function dataGetId() {
 		return [
 			[1, 'provider1', 'id1', false, false, false, 'id1'],
 			[2, 'provider2', 'id2', true, false, false, 'a86d8ab935af1778a321e615db5116e850c85a7a3070049ccd824b8989ccb4d5'],
@@ -45,7 +46,7 @@ class IdServiceTest extends TestCase {
 		];
 	}
 
-	/** @dataProvider dataGetId */
+	#[DataProvider('dataGetId')]
 	public function testGetId(int $providerId, string $providerName, string $id, bool $id4me, bool $uniqueId, bool $providerBasedId, string $expected): void {
 		$provider = new Provider();
 		$provider->setIdentifier($providerName);
@@ -54,12 +55,12 @@ class IdServiceTest extends TestCase {
 
 		$this->providerService
 			->method('getSetting')
-			->will($this->returnValueMap(
+			->willReturnMap(
 				[
 					[$providerId, ProviderService::SETTING_UNIQUE_UID, '1', $uniqueId ? '1' : '0'],
 					[$providerId, ProviderService::SETTING_PROVIDER_BASED_ID, '0', $providerBasedId ? '1' : '0'],
 				]
-			));
+			);
 
 		$result = $this->idService->getId($providerId, $id, $id4me);
 

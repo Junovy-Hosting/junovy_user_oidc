@@ -11,7 +11,7 @@ use OCA\UserOIDC\Db\ProviderMapper;
 use OCA\UserOIDC\Service\ID4MeService;
 use OCA\UserOIDC\Service\ProviderService;
 use OCP\AppFramework\Http;
-use OCP\AppFramework\Http\JSONResponse;
+use OCP\AppFramework\Http\DataResponse;
 use OCP\IAppConfig;
 use OCP\IGroup;
 use OCP\IGroupManager;
@@ -131,7 +131,7 @@ class SettingsControllerTest extends TestCase {
 		$result = $this->settingsController->resyncGroups();
 
 		// Verify response
-		$this->assertInstanceOf(JSONResponse::class, $result);
+		$this->assertInstanceOf(DataResponse::class, $result);
 		$this->assertEquals(Http::STATUS_OK, $result->getStatus());
 		$data = $result->getData();
 		$this->assertTrue($data['success']);
@@ -166,7 +166,7 @@ class SettingsControllerTest extends TestCase {
 
 		$result = $this->settingsController->resyncGroups();
 
-		$this->assertInstanceOf(JSONResponse::class, $result);
+		$this->assertInstanceOf(DataResponse::class, $result);
 		$data = $result->getData();
 		$this->assertTrue($data['success']);
 		$this->assertEquals(0, $data['stats']['hashed_groups_found']);
@@ -193,7 +193,7 @@ class SettingsControllerTest extends TestCase {
 
 		$result = $this->settingsController->resyncGroups();
 
-		$this->assertInstanceOf(JSONResponse::class, $result);
+		$this->assertInstanceOf(DataResponse::class, $result);
 		$data = $result->getData();
 		$this->assertTrue($data['success']);
 		$this->assertEquals(1, $data['stats']['hashed_groups_found']);
@@ -233,7 +233,7 @@ class SettingsControllerTest extends TestCase {
 
 		$result = $this->settingsController->resyncGroups(123); // providerId = 123
 
-		$this->assertInstanceOf(JSONResponse::class, $result);
+		$this->assertInstanceOf(DataResponse::class, $result);
 		$data = $result->getData();
 		$this->assertTrue($data['success']);
 		$this->assertEquals(1, $data['stats']['users_removed']);
@@ -249,7 +249,7 @@ class SettingsControllerTest extends TestCase {
 
 		$result = $this->settingsController->resyncGroups();
 
-		$this->assertInstanceOf(JSONResponse::class, $result);
+		$this->assertInstanceOf(DataResponse::class, $result);
 		$this->assertEquals(Http::STATUS_INTERNAL_SERVER_ERROR, $result->getStatus());
 		$data = $result->getData();
 		$this->assertFalse($data['success']);

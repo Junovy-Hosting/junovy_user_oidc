@@ -10,40 +10,34 @@
 			<p>
 				{{ t('user_oidc', 'Allows users to authenticate via OpenID Connect providers.') }}
 			</p>
-			<p>
-				<NcCheckboxRadioSwitch
-					v-model="id4meState"
-					wrapper-element="div"
-					@update:model-value="onId4MeChange">
-					{{ t('user_oidc', 'Enable ID4me') }}
-				</NcCheckboxRadioSwitch>
-			</p>
-			<p class="line">
-				<NcCheckboxRadioSwitch
-					v-model="storeLoginTokenState"
-					wrapper-element="div"
-					@update:model-value="onStoreLoginTokenChange">
-					{{ t('user_oidc', 'Store login tokens') }}
-				</NcCheckboxRadioSwitch>
-				<NcButton variant="tertiary"
-					:title="t('user_oidc', 'This is needed if you are using other apps that want to use user_oidc\'s token exchange or simply get the login token')">
-					<template #icon>
-						<HelpCircleOutlineIcon />
-					</template>
-				</NcButton>
-			</p>
+			<div class="top-boxes">
+				<NcFormBox>
+					<NcFormBoxSwitch
+						v-model="id4meState"
+						@update:model-value="onId4MeChange">
+						{{ t('user_oidc', 'Enable ID4me') }}
+					</NcFormBoxSwitch>
+					<NcFormBoxSwitch
+						v-model="storeLoginTokenState"
+						@update:model-value="onStoreLoginTokenChange">
+						{{ t('user_oidc', 'Store login tokens') }}
+					</NcFormBoxSwitch>
+				</NcFormBox>
+				<NcNoteCard type="info">
+					{{ t('user_oidc', '"Store login tokens" is needed if you are using other apps that want to use user_oidc\'s token exchange or simply get the login token') }}
+				</NcNoteCard>
+			</div>
 		</div>
 		<div class="section">
-			<h2>
+			<h2 class="register-title">
 				{{ t('user_oidc', 'Registered Providers') }}
-				<NcActions>
-					<NcActionButton @click="showNewProvider=true">
-						<template #icon>
-							<PlusIcon :size="20" />
-						</template>
-						{{ t('user_oidc', 'Register new provider') }}
-					</NcActionButton>
-				</NcActions>
+				<NcButton variant="secondary"
+					:title="t('user_oidc', 'Register new provider')"
+					@click="showNewProvider = true">
+					<template #icon>
+						<PlusIcon :size="20" />
+					</template>
+				</NcButton>
 			</h2>
 
 			<NcModal v-if="showNewProvider"
@@ -149,21 +143,23 @@
 </template>
 
 <script>
-import HelpCircleOutlineIcon from 'vue-material-design-icons/HelpCircleOutline.vue'
 import PencilOutlineIcon from 'vue-material-design-icons/PencilOutline.vue'
 import PlusIcon from 'vue-material-design-icons/Plus.vue'
 import TrashCanOutlineIcon from 'vue-material-design-icons/TrashCanOutline.vue'
 import RefreshIcon from 'vue-material-design-icons/Refresh.vue'
 
-import axios from '@nextcloud/axios'
-import { generateUrl } from '@nextcloud/router'
-import { showError, showSuccess } from '@nextcloud/dialogs'
 import NcActions from '@nextcloud/vue/components/NcActions'
 import NcActionButton from '@nextcloud/vue/components/NcActionButton'
 import NcModal from '@nextcloud/vue/components/NcModal'
-import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcDialog from '@nextcloud/vue/components/NcDialog'
+import NcFormBoxSwitch from '@nextcloud/vue/components/NcFormBoxSwitch'
+import NcFormBox from '@nextcloud/vue/components/NcFormBox'
+import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
+
+import axios from '@nextcloud/axios'
+import { generateOcsUrl, generateUrl } from '@nextcloud/router'
+import { showError, showSuccess } from '@nextcloud/dialogs'
 import { confirmPassword } from '@nextcloud/password-confirmation'
 
 import logger from '../logger.js'
@@ -176,13 +172,14 @@ export default {
 		NcActions,
 		NcActionButton,
 		NcModal,
-		NcCheckboxRadioSwitch,
 		NcButton,
+		NcFormBoxSwitch,
+		NcFormBox,
+		NcNoteCard,
 		PencilOutlineIcon,
 		TrashCanOutlineIcon,
 		NcDialog,
 		PlusIcon,
-		HelpCircleOutlineIcon,
 		RefreshIcon,
 	},
 	props: {
@@ -228,6 +225,7 @@ export default {
 					mappingOrganizations: '',
 					teamsWhitelistRegex: '',
 					protectedGroups: 'users,admin',
+					enrichLoginIdTokenWithUserinfo: false,
 				},
 			},
 			showNewProvider: false,
@@ -256,7 +254,7 @@ export default {
 			this.loadingId4Me = true
 			try {
 				await confirmPassword()
-				const url = generateUrl('/apps/junovy_user_oidc/provider/id4me')
+				const url = generateOcsUrl('/apps/junovy_user_oidc/api/v1/provider/id4me')
 
 				await axios.post(url, {
 					enabled: newValue,
@@ -274,7 +272,7 @@ export default {
 			this.loadingStoreLoginToken = true
 			try {
 				await confirmPassword()
-				const url = generateUrl('/apps/junovy_user_oidc/admin-config')
+				const url = generateOcsUrl('/apps/junovy_user_oidc/api/v1/admin-config')
 
 				await axios.post(url, {
 					values: {
@@ -298,7 +296,7 @@ export default {
 			await confirmPassword()
 			logger.info('Update oidc provider', { data: provider })
 
-			const url = generateUrl(`/apps/junovy_user_oidc/provider/${provider.id}`)
+			const url = generateOcsUrl('/apps/junovy_user_oidc/api/v1/provider/{providerId}', { providerId: provider.id })
 			try {
 				await axios.put(url, provider)
 				this.editProvider = null
@@ -306,7 +304,7 @@ export default {
 				this.providers[index] = provider
 			} catch (error) {
 				logger.error('Could not update the provider: ' + error.message, { error })
-				showError(t('user_oidc', 'Could not update the provider:') + ' ' + (error.response?.data?.message ?? error.message))
+				showError(t('user_oidc', 'Could not update the provider:') + ' ' + (error.response?.data?.ocs?.data?.message ?? error.message))
 			}
 		},
 		onProviderDeleteClick(provider) {
@@ -321,7 +319,7 @@ export default {
 			await confirmPassword()
 			logger.info('Remove oidc provider', { provider })
 
-			const url = generateUrl(`/apps/junovy_user_oidc/provider/${provider.id}`)
+			const url = generateOcsUrl('/apps/junovy_user_oidc/api/v1/provider/{providerId}', { providerId: provider.id })
 			try {
 				await axios.delete(url)
 
@@ -336,11 +334,11 @@ export default {
 			await confirmPassword()
 			logger.info('Add new oidc provider', { data: this.newProvider })
 
-			const url = generateUrl('/apps/junovy_user_oidc/provider')
+			const url = generateOcsUrl('/apps/junovy_user_oidc/api/v1/provider')
 			try {
 				const response = await axios.post(url, this.newProvider)
 
-				this.providers.push(response.data)
+				this.providers.push(response.data.ocs.data)
 
 				this.newProvider.identifier = ''
 				this.newProvider.clientId = ''
@@ -351,7 +349,7 @@ export default {
 				this.showNewProvider = false
 			} catch (error) {
 				logger.error('Could not register a provider: ' + error.message, { error })
-				showError(t('user_oidc', 'Could not register provider:') + ' ' + (error.response?.data?.message ?? error.message))
+				showError(t('user_oidc', 'Could not register provider:') + ' ' + (error.response?.data?.ocs?.data?.message ?? error.message))
 			}
 		},
 		getBackchannelUrl(provider) {
@@ -364,22 +362,23 @@ export default {
 
 			this.resyncingGroups = true
 			try {
-				const url = generateUrl('/apps/junovy_user_oidc/resync-groups')
+				const url = generateOcsUrl('/apps/junovy_user_oidc/api/v1/resync-groups')
 				const response = await axios.post(url)
+				const result = response.data?.ocs?.data ?? {}
 
-				if (response.data.success) {
-					const stats = response.data.stats
+				if (result.success) {
+					const stats = result.stats
 					const message = t('user_oidc', 'Groups resynced successfully. Found {count} hashed groups, removed {users} users. Users will get proper groups on their next login.', {
 						count: stats.hashed_groups_found,
 						users: stats.users_removed,
 					})
 					showSuccess(message)
 				} else {
-					showError(t('user_oidc', 'Failed to resync groups: {msg}', { msg: response.data.message || 'Unknown error' }))
+					showError(t('user_oidc', 'Failed to resync groups: {msg}', { msg: result.message || 'Unknown error' }))
 				}
 			} catch (error) {
 				logger.error('Could not resync groups: ' + error.message, { error })
-				showError(t('user_oidc', 'Could not resync groups: {msg}', { msg: error.response?.data?.message || error.message }))
+				showError(t('user_oidc', 'Could not resync groups: {msg}', { msg: error.response?.data?.ocs?.data?.message || error.message }))
 			} finally {
 				this.resyncingGroups = false
 			}
@@ -388,14 +387,24 @@ export default {
 }
 </script>
 <style lang="scss" scoped>
-h2 .action-item {
-	vertical-align: middle;
+h2.register-title {
 	margin-top: -2px;
+	display: flex;
+	align-items: center;
+	justify-content: start;
+	gap: 8px;
 }
 
 h3 {
 	font-weight: bold;
 	padding-bottom: 12px;
+}
+
+.top-boxes {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	max-width: 900px;
 }
 
 .line {

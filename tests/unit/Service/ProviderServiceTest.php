@@ -7,13 +7,13 @@
 
 declare(strict_types=1);
 
-
 use OCA\UserOIDC\AppInfo\Application;
 use OCA\UserOIDC\Db\ProviderMapper;
 use OCA\UserOIDC\Service\ProviderService;
 use OCP\IAppConfig;
 use OCP\IConfig;
 use PHPUnit\Framework\Assert;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 class ProviderServiceTest extends TestCase {
@@ -93,8 +93,10 @@ class ProviderServiceTest extends TestCase {
 			'groupProvisioning' => true,
 			'groupWhitelistRegex' => '1',
 			'restrictLoginToGroups' => true,
+			'azureGroupNames' => true,
 			'protectedGroups' => '1',
 			'nestedAndFallbackClaims' => true,
+			'enrichLoginIdTokenWithUserinfo' => true,
 			'teamsProvisioning' => true,
 			'mappingOrganizations' => '1',
 			'teamsWhitelistRegex' => '1',
@@ -126,7 +128,7 @@ class ProviderServiceTest extends TestCase {
 				'discoveryEndpoint' => null,
 				'endSessionEndpoint' => null,
 				'postLogoutUri' => null,
-				'scope' => '',
+				'scope' => null,
 				'settings' => $expectedSettings,
 			],
 			[
@@ -136,7 +138,7 @@ class ProviderServiceTest extends TestCase {
 				'discoveryEndpoint' => null,
 				'endSessionEndpoint' => null,
 				'postLogoutUri' => null,
-				'scope' => '',
+				'scope' => null,
 				'settings' => $expectedSettings,
 			],
 		], $this->providerService->getProvidersWithSettings());
@@ -178,8 +180,10 @@ class ProviderServiceTest extends TestCase {
 			'mappingBirthdate' => 'birthdate',
 			'groupWhitelistRegex' => '',
 			'restrictLoginToGroups' => false,
+			'azureGroupNames' => false,
 			'protectedGroups' => '',
 			'nestedAndFallbackClaims' => false,
+			'enrichLoginIdTokenWithUserinfo' => false,
 			// Teams provisioning settings
 			'teamsProvisioning' => false,
 			'mappingOrganizations' => '',
@@ -209,67 +213,69 @@ class ProviderServiceTest extends TestCase {
 		$this->appConfig->expects(self::any())
 			->method('getValueString')
 			->willReturnMap([
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_DISPLAYNAME, '', 'dn'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_EMAIL, '', 'mail'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_QUOTA, '', '1g'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_UID, '', 'uid'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_GROUPS, '', 'groups'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_LANGUAGE, '', 'language'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_LOCALE, '', 'locale'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_ADDRESS, '', 'address'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_STREETADDRESS, '', 'street_address'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_POSTALCODE, '', 'postal_code'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_LOCALITY, '', 'locality'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_REGION, '', 'region'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_COUNTRY, '', 'country'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_WEBSITE, '', 'website'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_AVATAR, '', 'avatar'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_TWITTER, '', 'twitter'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_FEDIVERSE, '', 'fediverse'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_ORGANISATION, '', 'organisation'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_ROLE, '', 'role'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_HEADLINE, '', 'headline'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_BIOGRAPHY, '', 'biography'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_PHONE, '', 'phone'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_GENDER, '', 'gender'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_PRONOUNS, '', 'pronouns'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_BIRTHDATE, '', 'birthdate'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_UNIQUE_UID, '', '1'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_CHECK_BEARER, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_BEARER_PROVISIONING, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_SEND_ID_TOKEN_HINT, '', '1'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_EXTRA_CLAIMS, '', 'claim1 claim2'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_PROVIDER_BASED_ID, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_GROUP_PROVISIONING, '', '1'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', ''],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_RESTRICT_LOGIN_TO_GROUPS, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_PROTECTED_GROUPS, '', ''],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '', '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_DISPLAYNAME, '', true, 'dn'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_EMAIL, '', true, 'mail'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_QUOTA, '', true, '1g'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_UID, '', true, 'uid'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_GROUPS, '', true, 'groups'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_LANGUAGE, '', true, 'language'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_LOCALE, '', true, 'locale'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_ADDRESS, '', true, 'address'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_STREETADDRESS, '', true, 'street_address'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_POSTALCODE, '', true, 'postal_code'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_LOCALITY, '', true, 'locality'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_REGION, '', true, 'region'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_COUNTRY, '', true, 'country'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_WEBSITE, '', true, 'website'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_AVATAR, '', true, 'avatar'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_TWITTER, '', true, 'twitter'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_FEDIVERSE, '', true, 'fediverse'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_ORGANISATION, '', true, 'organisation'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_ROLE, '', true, 'role'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_HEADLINE, '', true, 'headline'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_BIOGRAPHY, '', true, 'biography'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_PHONE, '', true, 'phone'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_GENDER, '', true, 'gender'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_PRONOUNS, '', true, 'pronouns'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_BIRTHDATE, '', true, 'birthdate'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_UNIQUE_UID, '', true, '1'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_CHECK_BEARER, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_BEARER_PROVISIONING, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_SEND_ID_TOKEN_HINT, '', true, '1'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_EXTRA_CLAIMS, '', true, 'claim1 claim2'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_PROVIDER_BASED_ID, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_GROUP_PROVISIONING, '', true, '1'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_GROUP_WHITELIST_REGEX, '', true, ''],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_RESTRICT_LOGIN_TO_GROUPS, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_AZURE_GROUP_NAMES, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_ENRICH_LOGIN_ID_TOKEN_WITH_USERINFO, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_PROTECTED_GROUPS, '', true, ''],
 				// Teams provisioning settings
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_TEAMS_PROVISIONING, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_ORGANIZATIONS, '', ''],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_TEAMS_WHITELIST_REGEX, '', ''],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_TEAMS_PROVISIONING, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MAPPING_ORGANIZATIONS, '', true, ''],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_TEAMS_WHITELIST_REGEX, '', true, ''],
 				// URL override settings
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_OVERRIDE_JWKS_URI, '', ''],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_OVERRIDE_TOKEN_ENDPOINT, '', ''],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_OVERRIDE_USERINFO_ENDPOINT, '', ''],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_OVERRIDE_JWKS_URI, '', true, ''],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_OVERRIDE_TOKEN_ENDPOINT, '', true, ''],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_OVERRIDE_USERINFO_ENDPOINT, '', true, ''],
 				// Additional settings
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_AUTO_REDIRECT, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_HIDE_PASSWORD_FORM, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_REDIRECT_FALLBACK, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_DISABLE_REGISTRATION, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_WEBDAV_ENABLED, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_PASSWORD_AUTHENTICATION, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_USE_ID_TOKEN, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_PUBLIC_KEY_CACHING_TIME, '', ''],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MIN_TIME_BETWEEN_JWKS_REQUESTS, '', ''],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_WELL_KNOWN_CACHING_TIME, '', ''],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_UPDATE_AVATAR, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_BUTTON_TEXT, '', ''],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_ALT_LOGIN_PAGE, '', ''],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_TLS_VERIFY, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_USE_EXTERNAL_STORAGE, '', '0'],
-				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_PROXY_LDAP, '', '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_AUTO_REDIRECT, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_HIDE_PASSWORD_FORM, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_REDIRECT_FALLBACK, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_DISABLE_REGISTRATION, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_WEBDAV_ENABLED, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_PASSWORD_AUTHENTICATION, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_USE_ID_TOKEN, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_PUBLIC_KEY_CACHING_TIME, '', true, ''],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_MIN_TIME_BETWEEN_JWKS_REQUESTS, '', true, ''],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_WELL_KNOWN_CACHING_TIME, '', true, ''],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_UPDATE_AVATAR, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_BUTTON_TEXT, '', true, ''],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_ALT_LOGIN_PAGE, '', true, ''],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_TLS_VERIFY, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_USE_EXTERNAL_STORAGE, '', true, '0'],
+				[Application::APP_ID, 'provider-1-' . ProviderService::SETTING_PROXY_LDAP, '', true, '0'],
 			]);
 
 		Assert::assertEquals(
@@ -317,14 +323,14 @@ class ProviderServiceTest extends TestCase {
 		$this->providerService->setSetting(1, 'key', 'value');
 	}
 
-	public function dataGetSetting() {
+	public static function dataGetSetting() {
 		return [
 			[1, 'option', '', 'ABC', 'ABC'],
 			[1, 'option', 'ABCD', 'ABCD', ''],
 		];
 	}
 
-	/** @dataProvider dataGetSetting */
+	#[DataProvider('dataGetSetting')]
 	public function testGetSetting($providerId, $key, $stored, $expected, $default = '') {
 		$this->appConfig->expects(self::once())
 			->method('getValueString')
@@ -334,7 +340,7 @@ class ProviderServiceTest extends TestCase {
 		Assert::assertEquals($expected, $this->providerService->getSetting($providerId, $key, $default));
 	}
 
-	public function dataConvertJson() {
+	public static function dataConvertJson() {
 		return [
 			// Setting unique id is a boolean
 			[ProviderService::SETTING_UNIQUE_UID, true, '1', true],
@@ -358,7 +364,7 @@ class ProviderServiceTest extends TestCase {
 			[ProviderService::SETTING_EXTRA_CLAIMS, 'test', 'test', 'test'],
 		];
 	}
-	/** @dataProvider dataConvertJson */
+	#[DataProvider('dataConvertJson')]
 	public function testConvertJson($key, $value, $stored, $expected) {
 		$raw = self::invokePrivate($this->providerService, 'convertFromJSON', [$key, $value]);
 		Assert::assertEquals($stored, $raw);

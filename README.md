@@ -30,7 +30,7 @@ This fork was created to address specific requirements when deploying Nextcloud 
 3. **Separate App Identity**
 
     - App ID: `junovy_user_oidc` (vs. `user_oidc`)
-    - Database tables: `junovy_user_oidc_*` (vs. `user_oidc_*`)
+    - Database tables: `jnvy_oidc*` (vs. `user_oidc*`)
     - Config key: `junovy_user_oidc` (vs. `user_oidc`)
     - Can be installed alongside the official app without conflicts
 
@@ -112,6 +112,32 @@ is not set in the discovery. In such case, you can set the default token endpoin
 ```php
 'junovy_user_oidc' => [
   'default_token_endpoint_auth_method' => 'client_secret_post'
+]
+```
+
+## `junovy_user_oidc.login_time_provisioning`
+
+Since JUN-836, group and Teams/Circles membership is provisioned by the `junovy-cloud-provisioner`
+service, not at login time. The login-time provisioning code (`provisionUserGroups()` and
+`provisionUserTeams()`) is therefore a no-op by default, regardless of the per-provider
+"group provisioning" and "Teams/Circles provisioning" toggles. It can be re-enabled for an
+installation with:
+
+```php
+'junovy_user_oidc' => [
+  'login_time_provisioning' => true
+]
+```
+
+## `junovy_user_oidc.validate_jwk_strength`
+
+By default, junovy_user_oidc validates the strength of the JWK keys received from the discovery endpoint.
+It will check that RSA keys are long enough and that EC/OKP keys have the correct curve.
+This can be disabled with:
+
+```php
+'junovy_user_oidc' => [
+  'validate_jwk_strength' => false
 ]
 ```
 
@@ -229,6 +255,22 @@ This will use the content of the userinfo endpoint response just like if it had 
 
 This will only work on login and not when validating a bearer token
 because provisioning when validating a bearer access token is not supported yet.
+
+### Optional userinfo claim
+
+By default, user_oidc requests the `userinfo` claim during OIDC authorization.
+However, some providers (e.g. Google) reject the claims parameter when it contains a `userinfo` key.
+
+You can disable sending the `userinfo` claim by setting this value in `config.php`:
+
+``` php
+'junovy_user_oidc' => [
+    'send_userinfo_claims' => false,
+],
+```
+
+When `send_userinfo_claims` is disabled, user_oidc will not include the `userinfo` claim in authorization requests,
+which may improve compatibility with providers.
 
 ### ID4me option
 
@@ -468,6 +510,9 @@ sudo -u www-data php /var/www/nextcloud/occ junovy_user_oidc:provider demoprovid
                 --group-provisioning=1 --group-whitelist-regex='/<regex>/' --group-restrict-login-to-whitelist=1
 ```
 
+> **Note:** in this fork, login-time group provisioning is disabled by default and handled by the
+> `junovy-cloud-provisioner` service instead. See `junovy_user_oidc.login_time_provisioning` above.
+
 ### Teams/Circles provisioning from Keycloak Organizations
 
 This feature enables automatic creation and management of Nextcloud Teams (Circles) based on organization membership from your Identity Provider. When users authenticate via OIDC, their organization memberships from the `organizations` claim will be synced to Nextcloud Circles.
@@ -535,6 +580,22 @@ To sync only organizations starting with "team-":
 
 This would sync organizations like "team-engineering" and "team-marketing" but ignore "admin" or "guests".
 
+The following formats are supported for the groups claim:
+
+* String list of group names: `"groups": "group1,group2,group3"`
+* Array of group name strings: `"groups": ["group1", "group2", "group3"]`
+* Object with name and id: `"groups": [{ "gid": "id1", "displayName": "group1" }, ...]`
+
+### EntraID and Microsoft graph
+
+If using EntraID an option to turn on group name lookups via Microsoft Graph. It will loop through all guid a user has and store the names of the groups in Nextcloud.
+
+This can be done in the graphical settings for the provider by with the occ command to create/update providers:
+
+```
+sudo -u www-data php occ junovy_user_oidc:provider demoprovider --entraid-group-names=1
+```
+
 ### Disable audience and azp checks
 
 The `audience` and `azp` token claims will be checked when validating a login ID token.
@@ -557,6 +618,16 @@ This app can stop matching users (when a user search is performed in Nextcloud) 
 'junovy_user_oidc' => [
     'user_search_match_emails' => false,
 ],
+```
+
+### Allow login over unencrypted HTTP
+
+***Warning***: This is dangerous. Login credentials may be transmitted without encryption.
+
+By default, the app only allows login when the connection uses HTTPS. In some scenarios, you may need to disable this check - for example, when your Nextcloud instance is served as a [Tor onion service](https://en.wikipedia.org/wiki/Tor_(network)#Onion_services), where traffic is already encrypted by the Tor protocol.
+
+```
+sudo -u www-data php /var/www/nextcloud/occ config:app:set --value=1 --type=boolean user_oidc allow_insecure_http
 ```
 
 ### Optional: Enable support for nested and fallback claim mappings

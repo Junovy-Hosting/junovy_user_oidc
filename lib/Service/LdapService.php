@@ -10,8 +10,9 @@ declare(strict_types=1);
 namespace OCA\UserOIDC\Service;
 
 use OCP\App\IAppManager;
-use OCP\AppFramework\QueryException;
 use OCP\IUser;
+use OCP\Server;
+use Psr\Container\ContainerExceptionInterface;
 use Psr\Log\LoggerInterface;
 
 class LdapService {
@@ -29,11 +30,9 @@ class LdapService {
 	/**
 	 * @param IUser $user
 	 * @return bool
-	 * @throws \Psr\Container\ContainerExceptionInterface
-	 * @throws \Psr\Container\NotFoundExceptionInterface
 	 */
 	public function isLdapDeletedUser(IUser $user): bool {
-		if ($this->isLDAPEnabled()) {
+		if (!$this->isLDAPEnabled()) {
 			return false;
 		}
 
@@ -43,10 +42,13 @@ class LdapService {
 		}
 
 		try {
-			/** @var \OCA\User_LDAP\User\DeletedUsersIndex */
-			$dui = \OC::$server->get(\OCA\User_LDAP\User\DeletedUsersIndex::class);
-		} catch (QueryException $e) {
+			$dui = Server::get(\OCA\User_LDAP\User\DeletedUsersIndex::class);
+		} catch (ContainerExceptionInterface $e) {
 			$this->logger->debug('\OCA\User_LDAP\User\DeletedUsersIndex class not found');
+			return false;
+		}
+
+		if (!$dui->isUserMarked($user->getUID())) {
 			return false;
 		}
 
@@ -71,10 +73,9 @@ class LdapService {
 	 */
 	public function syncUser(string $userId): void {
 		try {
-			/** @var \OCA\User_LDAP\User_Proxy */
-			$ldapUserProxy = \OC::$server->get(\OCA\User_LDAP\User_Proxy::class);
+			$ldapUserProxy = Server::get(\OCA\User_LDAP\User_Proxy::class);
 			$ldapUserProxy->loginName2UserName($userId);
-		} catch (QueryException $e) {
+		} catch (ContainerExceptionInterface $e) {
 			$this->logger->debug('\OCA\User_LDAP\User_Proxy class not found');
 		}
 	}
