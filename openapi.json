@@ -125,6 +125,7 @@
                     "groupWhitelistRegex",
                     "restrictLoginToGroups",
                     "protectedGroups",
+                    "forbidLoginWithoutGroup",
                     "nestedAndFallbackClaims",
                     "enrichLoginIdTokenWithUserinfo",
                     "teamsProvisioning",
@@ -255,6 +256,9 @@
                     },
                     "protectedGroups": {
                         "type": "string"
+                    },
+                    "forbidLoginWithoutGroup": {
+                        "type": "boolean"
                     },
                     "nestedAndFallbackClaims": {
                         "type": "boolean"

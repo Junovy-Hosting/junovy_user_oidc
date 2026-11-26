@@ -172,8 +172,10 @@ class UserMapper extends QBMapper {
 
 	/**
 	 * @param non-empty-string $sub
+	 * @param-out bool $created whether a new user was inserted
 	 */
-	public function getOrCreate(int $providerId, string $sub, bool $id4me = false): User {
+	public function getOrCreate(int $providerId, string $sub, bool $id4me = false, ?bool &$created = null): User {
+		$created = false;
 		// the sub is the stable identifier we want to keep around, so guard it
 		// against the column length the same way the userId is further below
 		$storedSub = strlen($sub) > 256 ? hash('sha256', $sub) : $sub;
@@ -236,6 +238,7 @@ class UserMapper extends QBMapper {
 		$user->setSub($storedSub);
 		$user = $this->insert($user);
 		$this->userCache->set($userId, $user);
+		$created = true;
 		return $user;
 	}
 
@@ -255,5 +258,37 @@ class UserMapper extends QBMapper {
 		$result->closeCursor();
 
 		return (int)$count;
+	}
+
+	/**
+	 * @return array<string, string>
+	 */
+	public function searchKnownUsersByDisplayName(string $searcher, string $pattern, ?int $limit = null, ?int $offset = null): array {
+		$query = $this->db->getQueryBuilder();
+
+		$query->select('u.user_id', 'u.display_name')
+			->from($this->getTableName(), 'u')
+			->leftJoin('u', 'known_users', 'k', $query->expr()->andX(
+				$query->expr()->eq('k.known_user', 'u.user_id'),
+				$query->expr()->eq('k.known_to', $query->createNamedParameter($searcher))
+			))
+			->where($query->expr()->eq('k.known_to', $query->createNamedParameter($searcher)))
+			->andWhere($query->expr()->orX(
+				$query->expr()->iLike('u.user_id', $query->createNamedParameter('%' . $this->db->escapeLikeParameter($pattern) . '%')),
+				$query->expr()->iLike('u.display_name', $query->createNamedParameter('%' . $this->db->escapeLikeParameter($pattern) . '%'))
+			))
+			->orderBy('u.display_name', 'ASC')
+			->addOrderBy('u.user_id', 'ASC')
+			->setMaxResults($limit)
+			->setFirstResult($offset);
+
+		$result = $query->executeQuery();
+		$displayNames = [];
+		while ($row = $result->fetch()) {
+			$displayNames[(string)$row['user_id']] = (string)$row['display_name'];
+		}
+		$result->closeCursor();
+
+		return $displayNames;
 	}
 }

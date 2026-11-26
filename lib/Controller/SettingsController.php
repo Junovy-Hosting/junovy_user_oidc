@@ -10,8 +10,11 @@ namespace OCA\UserOIDC\Controller;
 
 use Exception;
 use OCA\UserOIDC\AppInfo\Application;
+use OCA\UserOIDC\AuditLog\AuditLogger;
+use OCA\UserOIDC\AuditLog\Operation;
 use OCA\UserOIDC\Db\Provider;
 use OCA\UserOIDC\Db\ProviderMapper;
+use OCA\UserOIDC\Helper\HttpClientHelper;
 use OCA\UserOIDC\ResponseDefinitions;
 use OCA\UserOIDC\Service\ID4MeService;
 use OCA\UserOIDC\Service\ProviderService;
@@ -22,7 +25,6 @@ use OCP\AppFramework\Http\Attribute\OpenAPI;
 use OCP\AppFramework\Http\Attribute\PasswordConfirmationRequired;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\OCSController;
-use OCP\Http\Client\IClientService;
 use OCP\IAppConfig;
 use OCP\IGroupManager;
 use OCP\IRequest;
@@ -42,10 +44,11 @@ class SettingsController extends OCSController {
 		private ID4MeService $id4meService,
 		private ProviderService $providerService,
 		private ICrypto $crypto,
-		private IClientService $clientService,
+		private HttpClientHelper $httpClientHelper,
 		private LoggerInterface $logger,
 		private IGroupManager $groupManager,
 		private IUserManager $userManager,
+		private AuditLogger $auditLogger,
 	) {
 		parent::__construct(Application::APP_ID, $request);
 	}
@@ -57,13 +60,10 @@ class SettingsController extends OCSController {
 		];
 
 		try {
-			$client = $this->clientService->newClient();
-			$response = $client->get($url);
-			$httpCode = $response->getStatusCode();
-			$body = $response->getBody();
+			$body = $this->httpClientHelper->get($url);
 
 			// Check if the request was successful
-			if ($httpCode === Http::STATUS_OK && !empty($body)) {
+			if (!empty($body)) {
 				$result['isReachable'] = true;
 				$data = json_decode($body, true);
 
@@ -133,6 +133,7 @@ class SettingsController extends OCSController {
 		$provider = $this->providerMapper->insert($provider);
 
 		$providerSettings = $this->providerService->setSettings($provider->getId(), $settings);
+		$this->auditLogger->providerCreated($provider);
 
 		return new DataResponse(array_merge($provider->jsonSerialize(), ['settings' => $providerSettings]));
 	}
@@ -187,10 +188,12 @@ class SettingsController extends OCSController {
 		$provider->setScope($scope);
 		$provider = $this->providerMapper->update($provider);
 
+		$settingsBefore = $this->providerService->getSettings($providerId);
 		$providerSettings = $this->providerService->setSettings($providerId, $settings);
 		// invalidate JWKS cache
 		$this->providerService->setSetting($providerId, ProviderService::SETTING_JWKS_CACHE, '');
 		$this->providerService->setSetting($providerId, ProviderService::SETTING_JWKS_CACHE_TIMESTAMP, '');
+		$this->auditLogger->providerUpdated($provider, (bool)$clientSecret, $settingsBefore, $this->providerService->getSettings($providerId));
 
 		return new DataResponse(array_merge($provider->jsonSerialize(), ['settings' => $providerSettings]));
 	}
@@ -217,6 +220,7 @@ class SettingsController extends OCSController {
 
 		$this->providerMapper->delete($provider);
 		$this->providerService->deleteSettings($providerId);
+		$this->auditLogger->providerDeleted($provider);
 
 		return new DataResponse([], Http::STATUS_OK);
 	}
@@ -278,6 +282,11 @@ class SettingsController extends OCSController {
 		foreach ($values as $key => $value) {
 			if ($key === 'store_login_token' && is_bool($value)) {
 				$this->appConfig->setValueString(Application::APP_ID, 'store_login_token', $value ? '1' : '0', lazy: true);
+				$this->auditLogger->log(
+					Operation::ADMIN_CONFIG_UPDATED,
+					$value ? 'Storing the login tokens of users was enabled' : 'Storing the login tokens of users was disabled',
+					['key' => $key, 'value' => $value],
+				);
 			}
 		}
 		return new DataResponse([]);

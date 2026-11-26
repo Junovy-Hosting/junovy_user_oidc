@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace OCA\UserOIDC\User;
 
 use OCA\UserOIDC\AppInfo\Application;
+use OCA\UserOIDC\AuditLog\AuditLogger;
 use OCA\UserOIDC\Controller\LoginController;
 use OCA\UserOIDC\Db\Provider;
 use OCA\UserOIDC\Db\ProviderMapper;
@@ -18,6 +19,7 @@ use OCA\UserOIDC\Service\DiscoveryService;
 use OCA\UserOIDC\Service\LdapService;
 use OCA\UserOIDC\Service\ProviderService;
 use OCA\UserOIDC\Service\ProvisioningService;
+use OCA\UserOIDC\Service\SettingsService;
 use OCA\UserOIDC\User\Validator\IBearerTokenValidator;
 use OCA\UserOIDC\User\Validator\SelfEncodedValidator;
 use OCA\UserOIDC\User\Validator\UserInfoValidator;
@@ -43,11 +45,12 @@ use OCP\User\Backend\ICountUsersBackend;
 use OCP\User\Backend\ICustomLogout;
 use OCP\User\Backend\IGetDisplayNameBackend;
 use OCP\User\Backend\IPasswordConfirmationBackend;
+use OCP\User\Backend\ISearchKnownUsersBackend;
 use OCP\User\Events\UserFirstTimeLoggedInEvent;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
-class Backend extends ABackend implements IPasswordConfirmationBackend, IGetDisplayNameBackend, IApacheBackend, ICustomLogout, ICountUsersBackend {
+class Backend extends ABackend implements IPasswordConfirmationBackend, IGetDisplayNameBackend, IApacheBackend, ICustomLogout, ICountUsersBackend, ISearchKnownUsersBackend {
 	public const SESSION_USER_DATA = 'junovy_user_oidc.oidcUserData';
 
 	/** @var list<class-string<IBearerTokenValidator>> */
@@ -69,8 +72,10 @@ class Backend extends ABackend implements IPasswordConfirmationBackend, IGetDisp
 		private ProviderService $providerService,
 		private ProvisioningService $provisioningService,
 		private LdapService $ldapService,
+		private SettingsService $settingsService,
 		private IUserManager $userManager,
 		private ITimeFactory $timeFactory,
+		private AuditLogger $auditLogger,
 	) {
 	}
 
@@ -253,8 +258,11 @@ class Backend extends ABackend implements IPasswordConfirmationBackend, IGetDisp
 		}
 
 		// get the bearer token from headers
+		// the auth-scheme is case-insensitive and is separated from the credentials
+		// by one or more spaces or horizontal tabs (RFC 9110, section 11.1), so this
+		// guard has to accept exactly what the strip below removes
 		$headerToken = $this->request->getHeader(Application::OIDC_API_REQ_HEADER);
-		if (!str_starts_with($headerToken, 'bearer ') && !str_starts_with($headerToken, 'Bearer ')) {
+		if (preg_match('/^bearer\s+/i', $headerToken) !== 1) {
 			$this->logger->debug('No Bearer token');
 			return '';
 		}
@@ -321,23 +329,34 @@ class Backend extends ABackend implements IPasswordConfirmationBackend, IGetDisp
 						);
 						// prevent login of users that are not in a whitelisted group (if activated)
 						$restrictLoginToGroups = $this->providerService->getSetting($provider->getId(), ProviderService::SETTING_RESTRICT_LOGIN_TO_GROUPS, '0');
-						if ($restrictLoginToGroups === '1') {
+						$forbidLoginWithoutGroup = $this->providerService->getSetting($provider->getId(), ProviderService::SETTING_FORBID_LOGIN_WITHOUT_GROUP, '0');
+						if ($restrictLoginToGroups === '1' || $forbidLoginWithoutGroup === '1') {
 							try {
 								$tokenAttributes = $validator->getUserAttributes($provider, $headerToken);
-								$syncGroups = $this->provisioningService->getSyncGroupsOfToken($provider->getId(), $tokenAttributes);
 							} catch (Throwable $e) {
 								// a failure to read the groups must deny the token, not abort the request
 								$this->logger->debug('Failed to get the groups of the bearer token', ['exception' => $e]);
-								$syncGroups = null;
+								return '';
 							}
 
-							if ($syncGroups === null || count($syncGroups) === 0) {
-								$this->logger->debug('Prevented user from using a bearer token as user is not part of a whitelisted group');
+							if ($restrictLoginToGroups === '1') {
+								$syncGroups = $this->provisioningService->getSyncGroupsOfToken($provider->getId(), $tokenAttributes);
+
+								if ($syncGroups === null || count($syncGroups) === 0) {
+									$this->logger->debug('Prevented user from using a bearer token as user is not part of a whitelisted group');
+									return '';
+								}
+							}
+							// forbid login of users that are not in any group at all (regardless of the whitelist)
+							if ($forbidLoginWithoutGroup === '1' && !$this->provisioningService->hasGroups($provider->getId(), $tokenAttributes)) {
+								$this->logger->debug('Prevented user from using a bearer token as user is not part of any group');
 								return '';
 							}
 						}
 						$discovery = $this->discoveryService->obtainDiscovery($provider);
 						$this->eventDispatcher->dispatchTyped(new TokenValidatedEvent(['token' => $headerToken], $provider, $discovery));
+
+						$tokenUserId = $this->settingsService->parseUserId($tokenUserId);
 
 						if ($autoProvisionAllowed) {
 							// look for user in other backends
@@ -358,8 +377,11 @@ class Backend extends ABackend implements IPasswordConfirmationBackend, IGetDisp
 							}
 							if ($existingUser === null) {
 								// only create the user in our backend if the user does not exist in another backend
-								$backendUser = $this->userMapper->getOrCreate($provider->getId(), $tokenUserId);
+								$backendUser = $this->userMapper->getOrCreate($provider->getId(), $tokenUserId, created: $created);
 								$userId = $backendUser->getUserId();
+								if ($created) {
+									$this->auditLogger->userProvisioned($userId, $provider->getId(), 'bearer_token');
+								}
 							} else {
 								$userId = $existingUser->getUID();
 							}
@@ -480,5 +502,20 @@ class Backend extends ABackend implements IPasswordConfirmationBackend, IGetDisp
 			]);
 			return null;
 		}
+	}
+
+	#[\Override]
+	public function searchKnownUsersByDisplayName(string $searcher, string $pattern, ?int $limit = null, ?int $offset = null): array {
+		$limit = $this->fixLimit($limit);
+
+		return $this->userMapper->searchKnownUsersByDisplayName($searcher, $pattern, $limit, $offset);
+	}
+
+	private function fixLimit(?int $limit): ?int {
+		if (is_int($limit) && $limit >= 0) {
+			return $limit;
+		}
+
+		return null;
 	}
 }
