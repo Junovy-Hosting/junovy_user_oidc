@@ -23,6 +23,7 @@ use OCP\IConfig;
  */
 class ProviderService {
 	public const SETTING_CHECK_BEARER = 'checkBearer';
+	public const SETTING_USE_PRIVATE_KEY_JWT = 'usePrivateKeyJwt';
 	public const SETTING_SEND_ID_TOKEN_HINT = 'sendIdTokenHint';
 	public const SETTING_BEARER_PROVISIONING = 'bearerProvisioning';
 	public const SETTING_UNIQUE_UID = 'uniqueUid';
@@ -60,6 +61,7 @@ class ProviderService {
 	public const SETTING_GROUP_WHITELIST_REGEX = 'groupWhitelistRegex';
 	public const SETTING_RESTRICT_LOGIN_TO_GROUPS = 'restrictLoginToGroups';
 	public const SETTING_PROTECTED_GROUPS = 'protectedGroups';
+	public const SETTING_FORBID_LOGIN_WITHOUT_GROUP = 'forbidLoginWithoutGroup';
 	public const SETTING_AZURE_GROUP_NAMES = 'azureGroupNames';
 	public const SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING = 'nestedAndFallbackClaims';
 	public const SETTING_ENRICH_LOGIN_ID_TOKEN_WITH_USERINFO = 'enrichLoginIdTokenWithUserinfo';
@@ -98,8 +100,10 @@ class ProviderService {
 		self::SETTING_BEARER_PROVISIONING => false,
 		self::SETTING_UNIQUE_UID => true,
 		self::SETTING_CHECK_BEARER => false,
+		self::SETTING_USE_PRIVATE_KEY_JWT => false,
 		self::SETTING_SEND_ID_TOKEN_HINT => false,
 		self::SETTING_RESTRICT_LOGIN_TO_GROUPS => false,
+		self::SETTING_FORBID_LOGIN_WITHOUT_GROUP => false,
 		self::SETTING_AZURE_GROUP_NAMES => false,
 		self::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING => false,
 		self::SETTING_AUTO_REDIRECT => false,
@@ -290,6 +294,7 @@ class ProviderService {
 			self::SETTING_MAPPING_BIRTHDATE,
 			self::SETTING_UNIQUE_UID,
 			self::SETTING_CHECK_BEARER,
+			self::SETTING_USE_PRIVATE_KEY_JWT,
 			self::SETTING_SEND_ID_TOKEN_HINT,
 			self::SETTING_BEARER_PROVISIONING,
 			self::SETTING_EXTRA_CLAIMS,
@@ -324,6 +329,7 @@ class ProviderService {
 			self::SETTING_TLS_VERIFY,
 			self::SETTING_USE_EXTERNAL_STORAGE,
 			self::SETTING_PROXY_LDAP,
+			self::SETTING_FORBID_LOGIN_WITHOUT_GROUP,
 			self::SETTING_AZURE_GROUP_NAMES,
 			self::SETTING_RESOLVE_NESTED_AND_FALLBACK_CLAIMS_MAPPING,
 			self::SETTING_ENRICH_LOGIN_ID_TOKEN_WITH_USERINFO,

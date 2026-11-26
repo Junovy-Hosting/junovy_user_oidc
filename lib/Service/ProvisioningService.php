@@ -388,9 +388,9 @@ class ProvisioningService {
 		$this->logger->debug('Language mapping event dispatched');
 		if ($event->hasValue()) {
 			$language = $event->getValue();
-			$languagesCodes = $this->l10nFactory->findAvailableLanguages();
-			if (in_array($language, $languagesCodes, true) || $language === 'en') {
-				$this->config->setUserValue($user->getUID(), 'core', 'lang', $language);
+			$resolvedLanguage = is_string($language) ? $this->resolveLanguage($language) : null;
+			if ($resolvedLanguage !== null) {
+				$this->config->setUserValue($user->getUID(), 'core', 'lang', $resolvedLanguage);
 			} else {
 				$this->logger->debug('Invalid language in ID token', ['language' => $language]);
 			}
@@ -498,6 +498,36 @@ class ProvisioningService {
 	}
 
 	/**
+	 * Map a language claim to an available Nextcloud language code
+	 *
+	 * Accepts Nextcloud language codes (de, de_DE) as well as BCP47 tags (de-DE)
+	 * as specified in https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims.
+	 * Falls back to the primary language subtag if the region specific variant is not available.
+	 *
+	 * @return string|null the matching language code or null if no available language matches
+	 */
+	public function resolveLanguage(string $language): ?string {
+		if ($language === '') {
+			return null;
+		}
+
+		$languageCodes = $this->l10nFactory->findAvailableLanguages();
+		$languageCodes[] = 'en';
+
+		$candidates = [
+			$language,
+			Locale::canonicalize($language),
+			Locale::getPrimaryLanguage($language),
+		];
+		foreach ($candidates as $candidate) {
+			if ($candidate !== null && in_array($candidate, $languageCodes, true)) {
+				return $candidate;
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * @param string $userId
 	 * @param string $avatarAttribute
 	 * @return void
@@ -595,6 +625,43 @@ class ProvisioningService {
 		}
 	}
 
+	public function hasGroups(int $providerId, object $idTokenPayload): bool {
+		$groupsAttribute = $this->providerService->getSetting($providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups');
+
+		$groupsData = $this->getClaimValues($idTokenPayload, $groupsAttribute, $providerId);
+
+		// If the claim is null or empty, there are no groups.
+		if (empty($groupsData)) {
+			return false;
+		}
+
+		// If it's an array, checks that it has at least one element
+		// Example: $groupsData = ['group1', 'group2', ...];
+		if (is_array($groupsData) && count($groupsData) > 0) {
+			return true;
+		}
+
+		// If it's a comma-separated string
+		// Example: $groupsData = "group1,group2,...";
+		if (is_string($groupsData)) {
+			$groups = array_filter(array_map('trim', explode(',', $groupsData)));
+			return count($groups) > 0;
+		}
+
+		// If it's an object (e.g. [{gid:"1"}, {gid:"2"}])
+		// Example:
+		// $groupsData = [
+		//   {gid: "1"},
+		//   {gid: "2"},
+		//   ...
+		// ];
+		if (is_object($groupsData)) {
+			return !empty(get_object_vars($groupsData));
+		}
+
+		return false;
+	}
+
 	public function getSyncGroupsOfToken(int $providerId, object $idTokenPayload): ?array {
 		$groupsAttribute = $this->providerService->getSetting($providerId, ProviderService::SETTING_MAPPING_GROUPS, 'groups');
 		$groupsData = $this->getClaimValues($idTokenPayload, $groupsAttribute, $providerId);
@@ -639,7 +706,21 @@ class ProvisioningService {
 					$group = $v;
 				} elseif (is_string($v)) {
 					// Handle array of strings, e.g. ["group1", "group2", ...]
-					$group = (object)['gid' => $v, 'displayName' => $v];
+					// Some upstream servers return each group object as a JSON-encoded string,
+					// e.g. "{\"gid\":\"group1\",\"displayName\":\"Group 1\"}". Decode these so the
+					// gid and displayName can be read correctly instead of being passed through verbatim.
+					$decoded = json_decode($v, true);
+					if (is_array($decoded) && isset($decoded['gid'])) {
+						if (empty($decoded['gid']) && $decoded['gid'] !== '0' && $decoded['gid'] !== 0) {
+							continue;
+						}
+						$group = (object)[
+							'gid' => $decoded['gid'],
+							'displayName' => $decoded['displayName'] ?? $decoded['gid'],
+						];
+					} else {
+						$group = (object)['gid' => $v, 'displayName' => $v];
+					}
 				} else {
 					continue;
 				}

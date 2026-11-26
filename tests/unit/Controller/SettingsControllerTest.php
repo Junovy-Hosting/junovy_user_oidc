@@ -68,10 +68,11 @@ class SettingsControllerTest extends TestCase {
 			$this->id4meService,
 			$this->providerService,
 			$this->createMock(\OCP\Security\ICrypto::class),
-			$this->createMock(\OCP\Http\Client\IClientService::class),
+			$this->createMock(\OCA\UserOIDC\Helper\HttpClientHelper::class),
 			$this->logger,
 			$this->groupManager,
 			$this->userManager,
+			$this->createMock(\OCA\UserOIDC\AuditLog\AuditLogger::class),
 		);
 	}
 
