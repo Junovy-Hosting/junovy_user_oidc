@@ -997,7 +997,7 @@ class ProvisioningService {
 		$organizations = [];
 
 		// Handle Keycloak Organizations format (object with org IDs as keys)
-		if (is_array($orgsRaw) && !array_is_list($orgsRaw)) {
+		if (is_array($orgsRaw) && array_keys($orgsRaw) !== array_keys(array_values($orgsRaw))) {
 			foreach ($orgsRaw as $orgId => $orgData) {
 				$orgName = is_array($orgData) && isset($orgData['name']) ? $orgData['name'] : $orgId;
 				$org = (object)[
